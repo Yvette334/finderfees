@@ -10,7 +10,7 @@ import Dashboard from './components/dashboard'
 import Lost from './components/lost'
 import Found from './components/found'
 import Profile from './components/profile'
-import Reports from './components/reports'
+import Reports from './pages/reports'
 import Messages from './components/messages'
 import Payment from './components/payment'
 

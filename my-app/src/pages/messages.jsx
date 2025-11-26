@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import Navbar from './navbar'
-import Footer from './footer'
+import Navbar from '../components/navbar'
+import Footer from '../components/footer'
 
 function Messages() {
   const navigate = useNavigate()
@@ -58,7 +58,7 @@ function Messages() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <Navbar />
+      <Navbar/>
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-10">
         <div className="mb-4">
           <Link to="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">

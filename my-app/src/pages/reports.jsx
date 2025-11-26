@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import Navbar from './navbar'
-import Footer from './footer'
+import Navbar from '../components/navbar'
+import Footer from '../components/footer'
 
 function Reports() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
