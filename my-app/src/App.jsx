@@ -4,15 +4,15 @@ import Login from "./auth/login"
 import Register from "./auth/register"
 import Home from './pages/Home'
 import Search from './pages/search'
-import Verify from './components/verify'
-import Admin from './components/admin'
-import Dashboard from './components/dashboard'
-import Lost from './components/lost'
-import Found from './components/found'
-import Profile from './components/profile'
+import Verify from './pages/verify'
+import Admin from './pages/admin'
+import Dashboard from './pages/dashboard'
+import Lost from './pages/lost'
+import Found from './pages/found'
+import Profile from './pages/profile'
 import Reports from './pages/reports'
-import Messages from './components/messages'
-import Payment from './components/payment'
+import Messages from './pages/messages'
+import Payment from './pages/payment'
 
 function App() {
   return (

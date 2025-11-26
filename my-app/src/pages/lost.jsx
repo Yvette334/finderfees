@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import Navbar from './navbar'
-import Footer from './footer'
+import Navbar from '../components/navbar'
+import Footer from '../components/footer'
 
 function Lost() {
   const navigate = useNavigate()
@@ -159,7 +159,7 @@ function Lost() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {language === 'en' ? 'Photos' : 'Amashusho'}
             </label>
-            <label className="block w-full border-2 border-dashed border-gray-300 rounded-lg h-40 flex flex-col items-center justify-center text-sm text-gray-600 cursor-pointer hover:border-gray-400 transition-colors">
+            <label className="w-full border-2 border-dashed border-gray-300 rounded-lg h-40 flex flex-col items-center justify-center text-sm text-gray-600 cursor-pointer hover:border-gray-400 transition-colors">
               <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
               <div className="text-2xl mb-2">⬆️</div>
               <div>{language === 'en' ? 'Click to upload or drag and drop' : 'Kanda kugirango wongereho cyangwa kurura'}</div>
