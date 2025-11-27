@@ -15,6 +15,7 @@ function Admin() {
   const [allItems, setAllItems] = useState([])
   const [allPayments, setAllPayments] = useState([])
   const [loadingUsers, setLoadingUsers] = useState(false)
+  const [rpcAvailable, setRpcAvailable] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
 
@@ -64,8 +65,8 @@ function Admin() {
   useEffect(() => {
     const fetchUsers = async () => {
       setLoadingUsers(true)
-      try {
-        console.log('Fetching all users from database...')
+        try {
+          console.log('Fetching all users from database...')
         const response = await userAPI.getAllUsers()
         let users = []
         
@@ -141,10 +142,46 @@ function Admin() {
     const allSampleItems = [...(sampleItems.lost || []), ...(sampleItems.found || [])]
     const combinedItems = [...allItems, ...allSampleItems]
     
+    // Get item IDs that have approved claims (these are the claimed/returned items)
+    const itemsWithApprovedClaims = new Set(
+      approvedClaims
+        .map(claim => {
+          // Handle both item_id and itemId, and also check item_name matching for sample items
+          return claim.item_id || claim.itemId || null
+        })
+        .filter(Boolean)
+        .map(id => String(id))
+    )
+    
+    // Also check approved claims by item_name for sample items (since they might have null item_id)
+    const approvedClaimItemNames = new Set(
+      approvedClaims
+        .map(claim => (claim.item_name || claim.itemName || '').toLowerCase().trim())
+        .filter(Boolean)
+    )
+    
     const totalItems = combinedItems.length
     const lostItems = combinedItems.filter(item => item.type === 'lost').length
     const foundItems = combinedItems.filter(item => item.type === 'found').length
-    const returnedItems = combinedItems.filter(item => item.status === 'returned' || item.status === 'verified').length
+    
+    // Count returned items = items with approved claims (claimed items)
+    const returnedItemsArray = combinedItems.filter(item => {
+      const itemId = String(item.id || item._id || '')
+      const itemName = (item.itemName || item.item_name || '').toLowerCase().trim()
+      
+      // Check if item has an approved claim by ID
+      const hasApprovedClaimById = itemsWithApprovedClaims.has(itemId)
+      
+      // Check if item has an approved claim by name (for sample items or items with null item_id)
+      const hasApprovedClaimByName = approvedClaimItemNames.has(itemName)
+      
+      // Also check status as fallback
+      const hasReturnedStatus = item.status === 'returned' || item.status === 'verified'
+      
+      return hasApprovedClaimById || hasApprovedClaimByName || hasReturnedStatus
+    })
+    const returnedItems = returnedItemsArray.length
+    
     const activeItems = totalItems - returnedItems
     
     return {
@@ -469,9 +506,29 @@ function Admin() {
               <h2 className="text-xl font-semibold text-gray-900">
                 {language === 'en' ? 'All Users' : 'Abakoresha Byose'}
               </h2>
-              <span className="text-sm text-gray-500">
+                  <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-500">
                 {allUsers.length} {language === 'en' ? 'users' : 'abakoresha'}
               </span>
+                  <button
+                    onClick={async () => {
+                      setLoadingUsers(true)
+                      try {
+                        const synced = await userAPI.syncUsersFromAuth()
+                        setAllUsers(synced || [])
+                        alert(language === 'en' ? 'Users synced from Supabase auth profiles' : 'Abakoresha basubiwemo kuva muri Supabase auth')
+                      } catch (err) {
+                        console.error('Sync failed', err)
+                        alert(language === 'en' ? 'Failed to sync users from auth. Ensure RPC function "sync_all_auth_users_to_profiles" exists in Supabase.' : 'Gusubiramo abakoresha byanze. Reba niba RPC "sync_all_auth_users_to_profiles" ibaho muri Supabase.')
+                      } finally {
+                        setLoadingUsers(false)
+                      }
+                    }}
+                    className="text-sm bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    {language === 'en' ? 'Sync Users' : 'Subiriza Abakoresha'}
+                  </button>
+                  </div>
             </div>
             {loadingUsers ? (
               <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
@@ -483,6 +540,21 @@ function Admin() {
               </div>
             ) : (
               <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                {!rpcAvailable && (
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-t-lg text-yellow-800">
+                    {language === 'en' ? (
+                      <>
+                        The Supabase RPC function <code>get_all_users</code> is not available. The app may only show users who have profile records.
+                        <div className="mt-2 text-sm">To list all auth users, add an RPC that returns rows from <code>auth.users</code> or use a server-side admin endpoint.</div>
+                      </>
+                    ) : (
+                      <>
+                        Icyiswe Supabase RPC <code>get_all_users</code> ntabwo iboneka. Porogaramu ishobora gusa kugaragaza abakoresha bafite profiles.
+                        <div className="mt-2 text-sm">Kwerekana abakoresha bose, ongera RPC isubiza imirongo iva muri <code>auth.users</code> cyangwa ukoreshe imwe mu nzira z'inyuma.</div>
+                      </>
+                    )}
+                  </div>
+                )}
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>

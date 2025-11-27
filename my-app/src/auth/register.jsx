@@ -60,11 +60,18 @@ function register() {
     if (value.length <= 10) {
       setPhone(value)
       if (value.length === 10) {
-        setPhoneError('')
+        // Validate phone starts with 078 or 073
+        if (value.startsWith('078') || value.startsWith('073')) {
+          setPhoneError('')
+        } else {
+          setPhoneError(language === 'en' 
+            ? 'Phone number must start with 078 or 073' 
+            : 'Numero ya telefoni igomba gutangira na 078 cyangwa 073')
+        }
       } else if (value.length > 0) {
         setPhoneError(language === 'en' 
-          ? 'Phone number must be 10 digits' 
-          : 'Numero ya telefoni igomba kuba inyuguti 10')
+          ? 'Phone number must be 10 digits and start with 078 or 073' 
+          : 'Numero ya telefoni igomba kuba inyuguti 10 kandi itangire na 078 cyangwa 073')
       } else {
         setPhoneError('')
       }
@@ -83,6 +90,14 @@ function register() {
       return
     }
     
+    // Validate phone starts with 078 or 073
+    if (!phone.startsWith('078') && !phone.startsWith('073')) {
+      setPhoneError(language === 'en' 
+        ? 'Phone number must start with 078 or 073' 
+        : 'Numero ya telefoni igomba gutangira na 078 cyangwa 073')
+      return
+    }
+    
     setLoading(true)
 
     try {
@@ -93,35 +108,12 @@ function register() {
         phone,
         language
       })
-      const user = res?.user || res?.data?.user || null
-        if (user) {
-          try {
-            localStorage.setItem('user', JSON.stringify(user))
-          } catch (e) {}
-          // Check role in metadata first
-          const metaRole = user?.user_metadata?.role || user?.user_metadata?.role?.toLowerCase?.()
-          if (metaRole && String(metaRole).toLowerCase() === 'admin') {
-            navigate('/admin')
-            return
-          }
-          // Check role and route accordingly using profiles table as fallback
-          try {
-            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
-            const role = profile?.role?.toLowerCase?.() || profile?.role || ''
-            if (role === 'admin') {
-              navigate('/admin')
-            } else {
-              navigate('/dashboard')
-            }
-          } catch (e) {
-            alert(language === 'en' ? 'Registration successful! Redirecting...' : 'Kwiyandikisha byagenze neza! Dukurikira...')
-            navigate('/dashboard')
-          }
-      } else {
-        // If no immediate user object returned, redirect to login
-        alert(language === 'en' ? 'Registration successful! Please login to continue.' : 'Kwiyandikisha byagenze neza! Nyamuneka winjire kugirango ukomeze.')
-        navigate('/login')
-      }
+      // Registration successful - always redirect to login page
+      // Don't auto-login the user, they should login manually
+      alert(language === 'en' 
+        ? 'Registration successful! Please login to continue.' 
+        : 'Kwiyandikisha byagenze neza! Nyamuneka winjire kugirango ukomeze.')
+      navigate('/login')
     } catch (err) {
       // Supabase error objects may be Error or contain message
       const message = err?.message || (err?.error && err.error.message) || (language === 'en' ? 'Registration failed' : 'Kwiyandikisha byanze')

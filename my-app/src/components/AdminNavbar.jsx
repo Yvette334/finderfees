@@ -33,6 +33,8 @@ function AdminNavbar() {
                 await authSupabase.signOut()
                 localStorage.removeItem('user')
                 localStorage.removeItem('authToken')
+                sessionStorage.removeItem('activeUser')
+                sessionStorage.removeItem('activeUserToken')
                 window.location.href = '/'
               } catch (e) {
                 console.error('Logout error:', e)

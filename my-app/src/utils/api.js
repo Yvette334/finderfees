@@ -24,9 +24,14 @@ const persistAuthState = (session, user) => {
 
   const safeUser = serializeUser(user)
   if (safeUser) {
+    // Store in both localStorage (shared) and sessionStorage (tab-specific)
     localStorage.setItem('user', JSON.stringify(safeUser))
+    sessionStorage.setItem('activeUser', JSON.stringify(safeUser))
+    sessionStorage.setItem('activeUserToken', token || '')
   } else {
     localStorage.removeItem('user')
+    sessionStorage.removeItem('activeUser')
+    sessionStorage.removeItem('activeUserToken')
   }
 
   return { token, user: safeUser }
@@ -91,9 +96,23 @@ export const authAPI = {
     }
     localStorage.removeItem('authToken')
     localStorage.removeItem('user')
+    // Clear tab-specific session storage
+    sessionStorage.removeItem('activeUser')
+    sessionStorage.removeItem('activeUserToken')
   },
 
   getCurrentUser: () => {
+    // Check sessionStorage first (tab-specific) for presentations
+    // This allows different users in different tabs
+    const sessionUserStr = sessionStorage.getItem('activeUser')
+    if (sessionUserStr) {
+      try {
+        return JSON.parse(sessionUserStr)
+      } catch (e) {
+        // Invalid JSON, fall back to localStorage
+      }
+    }
+    // Fall back to localStorage (shared across tabs)
     const userStr = localStorage.getItem('user')
     return userStr ? JSON.parse(userStr) : null
   },
@@ -199,6 +218,32 @@ export const userAPI = {
     } catch (error) {
       console.warn('Error fetching users, falling back to local:', error.message || error)
       return fallbackUsers()
+    }
+  },
+  // Check if the RPC 'get_all_users' is available
+  checkGetAllUsersRpc: async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_all_users')
+      if (error) return false
+      return !!data
+    } catch (err) {
+      return false
+    }
+  },
+
+  // Attempts to sync all auth users into profiles table using an RPC function that should be created
+  // in Supabase DB: `rpc('sync_all_auth_users_to_profiles')`
+  syncUsersFromAuth: async () => {
+    try {
+      const { data, error } = await supabase.rpc('sync_all_auth_users_to_profiles')
+      if (error) throw error
+      // After syncing, refetch profiles
+      const { data: profiles, error: profilesError } = await supabase.from(PROFILES_TABLE).select('*')
+      if (profilesError) throw profilesError
+      return (profiles || []).map(mapProfileRow)
+    } catch (err) {
+      console.warn('Failed to sync users from auth:', err.message || err)
+      throw err
     }
   },
 

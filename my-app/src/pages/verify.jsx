@@ -33,11 +33,18 @@ function Verify() {
     if (value.length <= 10) {
       setPhone(value)
       if (value.length === 10) {
-        setPhoneError('')
+        // Validate phone starts with 078 or 073
+        if (value.startsWith('078') || value.startsWith('073')) {
+          setPhoneError('')
+        } else {
+          setPhoneError(language === 'en' 
+            ? 'Phone number must start with 078 or 073' 
+            : 'Numero ya telefoni igomba gutangira na 078 cyangwa 073')
+        }
       } else if (value.length > 0) {
         setPhoneError(language === 'en' 
-          ? 'Phone number must be 10 digits' 
-          : 'Numero ya telefoni igomba kuba inyuguti 10')
+          ? 'Phone number must be 10 digits and start with 078 or 073' 
+          : 'Numero ya telefoni igomba kuba inyuguti 10 kandi itangire na 078 cyangwa 073')
       } else {
         setPhoneError('')
       }
@@ -103,6 +110,14 @@ function Verify() {
                 setPhoneError(language === 'en' 
                   ? 'Phone number must be exactly 10 digits' 
                   : 'Numero ya telefoni igomba kuba inyuguti 10')
+                return
+              }
+              
+              // Validate phone starts with 078 or 073
+              if (!phone.startsWith('078') && !phone.startsWith('073')) {
+                setPhoneError(language === 'en' 
+                  ? 'Phone number must start with 078 or 073' 
+                  : 'Numero ya telefoni igomba gutangira na 078 cyangwa 073')
                 return
               }
               

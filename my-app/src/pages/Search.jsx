@@ -359,20 +359,20 @@ export default function search() {
             <div className="flex items-center gap-3">
               <Link 
                 to="/login"
-                className="text-sm text-gray-600 hover:text-gray-900"
+                className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
               >
                 {language === 'en' ? 'Login' : 'Injira'}
               </Link>
               <Link 
                 to="/register"
-                className="text-sm bg-gray-900 text-white px-3 py-2 rounded-lg hover:opacity-90 transition-opacity"
+                className="text-sm bg-black text-white px-3 py-2 rounded-lg hover:opacity-90 transition-opacity"
               >
                 {language === 'en' ? 'Register' : 'Kwiyandikisha'}
               </Link>
               <select 
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
-                className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer outline-none"
+                className="bg-black text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer outline-none"
               >
                 <option value="en">English</option>
                 <option value="rw">Kinyarwanda</option>
