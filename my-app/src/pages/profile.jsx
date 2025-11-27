@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
-import { authAPI, userAPI } from '../utils/api'
+import { authSupabase, itemsSupabase, claimsSupabase } from '../utils/supabaseAPI'
+import { userAPI } from '../utils/api'
 
 function Profile() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
@@ -22,10 +23,24 @@ function Profile() {
   }, [])
 
   useEffect(() => {
-    const currentUser = authAPI.getCurrentUser()
-    setUserName(currentUser?.fullName || '')
-    setUserPhone(currentUser?.phone || '')
-    setUserEmail(currentUser?.email || '')
+    const loadProfile = async () => {
+      try {
+        const u = await authSupabase.getCurrentUser()
+        if (u) {
+          setUserName(u.user_metadata?.fullName || u.email || '')
+          setUserPhone(u.user_metadata?.phone || '')
+          setUserEmail(u.email || '')
+          // load user items and claims
+          const items = await itemsSupabase.getItems({ userId: u.id })
+          setMyItems(items || [])
+          const claims = await claimsSupabase.getMyClaims(u.id)
+          setMyClaims(claims || [])
+        }
+      } catch (err) {
+        console.error('Failed to load profile data', err)
+      }
+    }
+    loadProfile()
   }, [])
 
   const handlePhoneChange = (e) => {
@@ -54,42 +69,22 @@ function Profile() {
     }
     
     try {
-      await userAPI.updateProfile({
-        fullName: userName,
-        phone: userPhone,
-        email: userEmail
-      })
-      const updatedUser = { ...authAPI.getCurrentUser(), fullName: userName, phone: userPhone, email: userEmail }
-      localStorage.setItem('user', JSON.stringify(updatedUser))
+      await userAPI.updateProfile({ fullName: userName, phone: userPhone })
+      // Update local UI
       setIsEditing(false)
       setPhoneError('')
     } catch (error) {
+      console.error('Profile update failed', error)
       alert(language === 'en' ? 'Failed to update profile' : 'Kugenzura profayili byanze')
     }
   }
-
-  const reportedItems = JSON.parse(localStorage.getItem('reportedItems') || '[]')
-  const myItems = reportedItems.filter(item => 
-    item.userName === userName || item.userPhone === userPhone
-  )
-
-  const claims = {
-    pending: JSON.parse(localStorage.getItem('pendingClaims') || '[]'),
-    approved: JSON.parse(localStorage.getItem('approvedClaims') || '[]'),
-    rejected: JSON.parse(localStorage.getItem('rejectedClaims') || '[]'),
-  }
-
-  const filterMine = (list) => {
-    if (userPhone) return list.filter(c => c.phone === userPhone)
-    if (userName) return list.filter(c => c.fullName === userName)
-    return []
-  }
-
-  const myClaims = filterMine(claims.pending).length + filterMine(claims.approved).length + filterMine(claims.rejected).length
-
+  const [myItems, setMyItems] = useState([])
+  const [myClaims, setMyClaims] = useState([])
+    const myClaimsCount = myClaims.length
+    const approvedCount = myClaims.filter(c => c.status === 'approved').length
   return (
-    <div className="min-h-screen flex flex-col bg-white">
-      <Navbar />
+      <div className="min-h-screen flex flex-col bg-white">
+        <Navbar />
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-10">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">
@@ -108,14 +103,14 @@ function Profile() {
             </div>
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <div className="text-2xl font-bold text-gray-900 mb-1">{myClaims}</div>
+            <div className="text-2xl font-bold text-gray-900 mb-1">{myClaimsCount}</div>
             <div className="text-sm text-gray-500">
               {language === 'en' ? 'Total Claims' : 'Ibyifuzo Byose'}
             </div>
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-6">
             <div className="text-2xl font-bold text-gray-900 mb-1">
-              {filterMine(claims.approved).length}
+              {approvedCount}
             </div>
             <div className="text-sm text-gray-500">
               {language === 'en' ? 'Items Recovered' : 'Ibintu Byagarutse'}

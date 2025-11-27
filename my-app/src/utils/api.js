@@ -1,73 +1,94 @@
-/**
- * API Service for Finders Fee Platform
- * Connects React frontend to MongoDB backend
- */
+import supabase from './supabaseClient'
+import { authSupabase, itemsSupabase, claimsSupabase } from './supabaseAPI'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+const PROFILES_TABLE = 'profiles'
 
-// Helper function for API requests
-async function apiRequest(endpoint, options = {}) {
-  const url = `${API_BASE_URL}${endpoint}`
-  const token = localStorage.getItem('authToken')
-
-  const config = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options.headers
-    },
-    ...options
-  }
-
-  if (options.body && typeof options.body === 'object') {
-    config.body = JSON.stringify(options.body)
-  }
-
-  try {
-    const response = await fetch(url, config)
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Request failed')
-    }
-
-    return data
-  } catch (error) {
-    console.error('API Error:', error)
-    throw error
+const serializeUser = (user) => {
+  if (!user) return null
+  return {
+    id: user.id,
+    email: user.email,
+    fullName: user.user_metadata?.fullName || user.email || '',
+    phone: user.user_metadata?.phone || '',
+    language: user.user_metadata?.language || 'en'
   }
 }
 
-// ============================================
-// AUTHENTICATION API
-// ============================================
+const persistAuthState = (session, user) => {
+  const token = session?.access_token || null
+  if (token) {
+    localStorage.setItem('authToken', token)
+  } else {
+    localStorage.removeItem('authToken')
+  }
+
+  const safeUser = serializeUser(user)
+  if (safeUser) {
+    localStorage.setItem('user', JSON.stringify(safeUser))
+  } else {
+    localStorage.removeItem('user')
+  }
+
+  return { token, user: safeUser }
+}
+
+const syncProfileRecord = async (user) => {
+  if (!user) return
+  const record = {
+    id: user.id,
+    email: user.email,
+    full_name: user.user_metadata?.fullName || user.email || '',
+    phone: user.user_metadata?.phone || '',
+    language: user.user_metadata?.language || 'en',
+    updated_at: new Date().toISOString()
+  }
+
+  try {
+    await supabase.from(PROFILES_TABLE).upsert(record, { onConflict: 'id' })
+  } catch (error) {
+    console.warn('Profile sync skipped:', error.message || error)
+  }
+}
+
+const mapProfileRow = (row) => ({
+  id: row.id,
+  fullName: row.full_name || row.fullName || '',
+  email: row.email,
+  phone: row.phone || '',
+  language: row.language || 'en',
+  createdAt: row.created_at || row.createdAt,
+  updatedAt: row.updated_at || row.updatedAt
+})
+
+const fallbackUsers = () => JSON.parse(localStorage.getItem('users') || '[]')
 
 export const authAPI = {
-  register: async (userData) => {
-    const response = await apiRequest('/auth/register', {
-      method: 'POST',
-      body: userData
+  register: async ({ email, password, fullName, phone, language }) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { fullName, phone, language }
+      }
     })
-    if (response.token) {
-      localStorage.setItem('authToken', response.token)
-      localStorage.setItem('user', JSON.stringify(response.user))
-    }
-    return response
+    if (error) throw new Error(error.message)
+    await syncProfileRecord(data.user)
+    return persistAuthState(data.session, data.user)
   },
 
   login: async (email, password) => {
-    const response = await apiRequest('/auth/login', {
-      method: 'POST',
-      body: { email, password }
-    })
-    if (response.token) {
-      localStorage.setItem('authToken', response.token)
-      localStorage.setItem('user', JSON.stringify(response.user))
-    }
-    return response
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw new Error(error.message)
+    await syncProfileRecord(data.user)
+    return persistAuthState(data.session, data.user)
   },
 
-  logout: () => {
+  logout: async () => {
+    try {
+      await supabase.auth.signOut()
+    } catch (error) {
+      console.warn('Supabase sign out warning:', error.message || error)
+    }
     localStorage.removeItem('authToken')
     localStorage.removeItem('user')
   },
@@ -78,154 +99,126 @@ export const authAPI = {
   },
 
   isAuthenticated: () => {
-    return !!localStorage.getItem('authToken')
+    return !!(localStorage.getItem('authToken') || localStorage.getItem('user'))
   }
 }
-
-// ============================================
-// USER API
-// ============================================
 
 export const userAPI = {
   getProfile: async () => {
-    return apiRequest('/users/me')
+    const { data, error } = await supabase.auth.getUser()
+    if (error) throw new Error(error.message)
+    await syncProfileRecord(data.user)
+    return serializeUser(data.user)
   },
 
   updateProfile: async (userData) => {
-    return apiRequest('/users/me', {
-      method: 'PUT',
-      body: userData
-    })
+    const { data, error } = await supabase.auth.updateUser({ data: userData })
+    if (error) throw new Error(error.message)
+    await syncProfileRecord(data.user)
+    const safeUser = serializeUser(data.user)
+    if (safeUser) {
+      localStorage.setItem('user', JSON.stringify(safeUser))
+    }
+    return safeUser
+  },
+
+  getAllUsers: async () => {
+    try {
+      const { data, error } = await supabase.from(PROFILES_TABLE).select('*').order('updated_at', { ascending: false })
+      if (error) throw error
+      return (data || []).map(mapProfileRow)
+    } catch (error) {
+      console.warn('Falling back to local users:', error.message || error)
+      return fallbackUsers()
+    }
+  },
+
+  getUserById: async (userId) => {
+    try {
+      const { data, error } = await supabase.from(PROFILES_TABLE).select('*').eq('id', userId).single()
+      if (error) throw error
+      return mapProfileRow(data)
+    } catch (error) {
+      console.warn('Failed to fetch user from Supabase:', error.message || error)
+      return fallbackUsers().find((u) => (u.id || u._id) === userId) || null
+    }
+  },
+
+  deleteUser: async (userId) => {
+    try {
+      await supabase.from(PROFILES_TABLE).delete().eq('id', userId)
+    } catch (error) {
+      console.warn('Supabase delete warning:', error.message || error)
+      const filtered = fallbackUsers().filter((u) => (u.id || u._id) !== userId)
+      localStorage.setItem('users', JSON.stringify(filtered))
+    }
   }
 }
-
-// ============================================
-// ITEM API
-// ============================================
 
 export const itemAPI = {
-  createItem: async (itemData) => {
-    return apiRequest('/items', {
-      method: 'POST',
-      body: itemData
-    })
-  },
-
-  getItems: async (filters = {}) => {
-    const queryParams = new URLSearchParams(filters).toString()
-    return apiRequest(`/items?${queryParams}`)
-  },
-
-  getItemById: async (itemId) => {
-    return apiRequest(`/items/${itemId}`)
-  },
-
-  updateItem: async (itemId, itemData) => {
-    return apiRequest(`/items/${itemId}`, {
-      method: 'PUT',
-      body: itemData
-    })
-  },
-
-  deleteItem: async (itemId) => {
-    return apiRequest(`/items/${itemId}`, {
-      method: 'DELETE'
-    })
-  }
+  createItem: async (itemData) => itemsSupabase.createItem(itemData),
+  getItems: async (filters = {}) => itemsSupabase.getItems(filters),
+  getItemById: async (itemId) => itemsSupabase.getItemById(itemId),
+  updateItem: async (itemId, itemData) => itemsSupabase.updateItem(itemId, itemData),
+  deleteItem: async (itemId) => itemsSupabase.deleteItem(itemId)
 }
-
-// ============================================
-// CLAIM API
-// ============================================
 
 export const claimAPI = {
-  createClaim: async (claimData) => {
-    return apiRequest('/claims', {
-      method: 'POST',
-      body: claimData
-    })
-  },
-
-  getPendingClaims: async () => {
-    return apiRequest('/claims/pending')
-  },
-
-  getMyClaims: async () => {
-    return apiRequest('/claims/my')
-  },
-
-  approveClaim: async (claimId) => {
-    return apiRequest(`/claims/${claimId}/approve`, {
-      method: 'PUT'
-    })
-  },
-
-  rejectClaim: async (claimId) => {
-    return apiRequest(`/claims/${claimId}/reject`, {
-      method: 'PUT'
-    })
-  }
+  createClaim: async (claimData) => claimsSupabase.createClaim(claimData),
+  getPendingClaims: async () => claimsSupabase.getPendingClaims(),
+  getMyClaims: async (userId) => claimsSupabase.getMyClaims(userId),
+  approveClaim: async (claimId, reviewer) => claimsSupabase.approveClaim(claimId, reviewer),
+  rejectClaim: async (claimId, reviewer) => claimsSupabase.rejectClaim(claimId, reviewer)
 }
-
-// ============================================
-// PAYMENT API
-// ============================================
-
-export const paymentAPI = {
-  createPayment: async (paymentData) => {
-    return apiRequest('/payments', {
-      method: 'POST',
-      body: paymentData
-    })
-  },
-
-  getMyPayments: async () => {
-    return apiRequest('/payments/my')
-  },
-
-  updatePaymentStatus: async (paymentId, status, transactionId = null) => {
-    return apiRequest(`/payments/${paymentId}/status`, {
-      method: 'PUT',
-      body: { status, transactionId }
-    })
-  }
-}
-
-// ============================================
-// NOTIFICATION API
-// ============================================
-
-export const notificationAPI = {
-  getNotifications: async (unreadOnly = false) => {
-    const params = unreadOnly ? { unreadOnly: 'true' } : {}
-    const queryParams = new URLSearchParams(params).toString()
-    return apiRequest(`/notifications?${queryParams}`)
-  },
-
-  markAsRead: async (notificationId) => {
-    return apiRequest(`/notifications/${notificationId}/read`, {
-      method: 'PUT'
-    })
-  },
-
-  markAllAsRead: async () => {
-    return apiRequest('/notifications/read-all', {
-      method: 'PUT'
-    })
-  }
-}
-
-// ============================================
-// STATISTICS API
-// ============================================
 
 export const statisticsAPI = {
   getPlatformStats: async () => {
-    return apiRequest('/statistics/platform')
+    const items = (await itemsSupabase.getItems()) || []
+    const pendingClaims = (await claimsSupabase.getPendingClaims()) || []
+    const returnedItems = items.filter((item) => item.status === 'returned').length
+    const lostItems = items.filter((item) => item.type === 'lost').length
+    const foundItems = items.filter((item) => item.type === 'found').length
+
+    return {
+      totalItems: items.length,
+      lostItems,
+      foundItems,
+      returnedItems,
+      pendingClaims: pendingClaims.length
+    }
   },
 
   getMyStats: async () => {
-    return apiRequest('/statistics/my')
+    const user = await authSupabase.getCurrentUser()
+    if (!user) {
+      return {
+        totalItems: 0,
+        pendingClaims: 0,
+        approvedClaims: 0,
+        returnedItems: 0,
+        totalEarnings: 0
+      }
+    }
+
+    const [items, claims] = await Promise.all([
+      itemsSupabase.getItems({ userId: user.id }),
+      claimsSupabase.getMyClaims(user.id)
+    ])
+
+    const safeItems = items || []
+    const safeClaims = claims || []
+    const approvedClaims = safeClaims.filter((claim) => claim.status === 'approved')
+    const pendingClaims = safeClaims.filter((claim) => claim.status === 'pending')
+    const returnedItems = safeItems.filter((item) => item.status === 'returned').length
+    const totalEarnings = approvedClaims.reduce((sum, claim) => sum + (claim.reward || 0), 0)
+
+    return {
+      totalItems: safeItems.length,
+      pendingClaims: pendingClaims.length,
+      approvedClaims: approvedClaims.length,
+      returnedItems,
+      totalEarnings
+    }
   }
 }
 
@@ -234,8 +227,5 @@ export default {
   userAPI,
   itemAPI,
   claimAPI,
-  paymentAPI,
-  notificationAPI,
   statisticsAPI
 }
-

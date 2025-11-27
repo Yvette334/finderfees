@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
-import { authAPI } from '../utils/api'
+import { authSupabase, itemsSupabase } from '../utils/supabaseAPI'
 
 function Lost() {
   const navigate = useNavigate()
@@ -14,13 +14,12 @@ function Lost() {
   const [photo, setPhoto] = useState('')
   const [photoPreview, setPhotoPreview] = useState('')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
-
-  const currentUser = authAPI.getCurrentUser()
-  const userName = currentUser?.fullName || 'Anonymous'
-  const userPhone = currentUser?.phone || ''
+  const [userName, setUserName] = useState('Anonymous')
+  const [userPhone, setUserPhone] = useState('')
+  const [userId, setUserId] = useState(null)
 
   // Listen for language changes
-  React.useEffect(() => {
+  useEffect(() => {
     const handleLanguageChange = (e) => {
       setLanguage(e.detail || localStorage.getItem('language') || 'en')
     }
@@ -29,6 +28,21 @@ function Lost() {
     return () => window.removeEventListener('languageChanged', handleLanguageChange)
   }, [])
 
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const u = await authSupabase.getCurrentUser()
+        if (u) {
+          setUserId(u.id)
+          setUserName(u.user_metadata?.fullName || u.email || 'Anonymous')
+          setUserPhone(u.user_metadata?.phone || '')
+        }
+      } catch (err) {
+        console.warn('Supabase get user failed', err)
+      }
+    }
+    loadUser()
+  }, [])
   const handleFileChange = (e) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -42,6 +56,7 @@ function Lost() {
         alert('File size must be less than 10MB')
         return
       }
+        // no side-effect here — just preview upload
       // Convert to data URL for storage
       const reader = new FileReader()
       reader.onloadend = () => {
@@ -52,24 +67,37 @@ function Lost() {
     }
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    const all = JSON.parse(localStorage.getItem('reportedItems') || '[]')
-    all.unshift({
-      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    // Ensure user is authenticated in Supabase
+    const user = await authSupabase.getCurrentUser()
+    if (!user) {
+      alert('Please sign in to report an item')
+      return navigate('/auth/login')
+    }
+
+    const payload = {
       type: 'lost',
+      item_name: title,
       itemName: title,
       description,
       category: category || 'Other',
       location,
       date: date || new Date().toISOString().slice(0,10),
       photo,
-      userName,
-      userPhone,
-      createdAt: new Date().toISOString(),
-    })
-    localStorage.setItem('reportedItems', JSON.stringify(all))
-    navigate('/dashboard')
+      user_id: user.id,
+      user_name: user.user_metadata?.fullName || user.email || 'Anonymous',
+      userName: user.user_metadata?.fullName || user.email || 'Anonymous',
+      user_phone: user.user_metadata?.phone || ''
+    }
+
+    try {
+      await itemsSupabase.createItem(payload)
+      navigate('/dashboard')
+    } catch (err) {
+      console.error('Failed to create item', err)
+      alert('Failed to create item')
+    }
   }
 
   return (

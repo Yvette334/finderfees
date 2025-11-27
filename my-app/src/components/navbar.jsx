@@ -73,15 +73,13 @@ function Navbar() {
         </Link>
 
         <div className="flex items-center gap-3">
-          <Link to="/" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
-            {language === 'en' ? 'Home' : 'Ahabanza'}
+         <Link to="/dashboard" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
+            {language === 'en' ? 'Dashboard' : 'Ahabanza'}
           </Link>
           <Link to="/search" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
             {language === 'en' ? 'Search' : 'Shakisha'}
           </Link>
-          <Link to="/dashboard" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
-            {language === 'en' ? 'Dashboard' : 'Ikibaho'}
-          </Link>
+          
           <Link to="/profile" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
             {language === 'en' ? 'Profile' : 'Profayili'}
           </Link>

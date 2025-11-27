@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
+import { itemsSupabase } from '../utils/supabaseAPI'
 
 export const sampleItems = {
     lost: [
@@ -143,21 +144,42 @@ export default function search() {
 
   const verifiedSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('verifiedItemIds') || '[]')), [])
   const paidItemsSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('paidItems') || '[]')), [])
+  const [apiItems, setApiItems] = useState([])
   
   // Get approved claims to find finder phone numbers
   const approvedClaims = useMemo(() => {
     return JSON.parse(localStorage.getItem('approvedClaims') || '[]')
   }, [])
   
-  // Get all found items to match with lost items
+  // Get all found items to match with lost items (API + local)
   const foundItems = useMemo(() => {
-    const all = JSON.parse(localStorage.getItem('reportedItems') || '[]')
-    return all.filter(item => item.type === 'found')
-  }, [])
+    const allLocal = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+    const fromLocalFound = allLocal.filter(item => item.type === 'found')
+    const fromApiFound = apiItems.filter(item => item.type === 'found')
+    return [...fromApiFound, ...fromLocalFound]
+  }, [apiItems])
 
-  // Get user-reported items from localStorage
+  // Get user-reported items from API + localStorage
   const reportedItems = useMemo(() => {
-    const all = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+    const allLocal = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+    const apiNormalized = apiItems.map(item => ({
+      id: item.id || item._id,
+      type: item.type,
+      itemName: item.item_name || item.itemName,
+      description: item.description || '',
+      category: item.category || 'Other',
+      location: item.location || '',
+      date: item.date || item.created_at,
+      photo: item.photo || '',
+      userId: item.user_id || '',
+      userName: item.user_name || item.userName || 'Anonymous',
+      userPhone: item.user_phone || item.userPhone || '',
+      reward: item.reward || null,
+      commission: item.commission || null,
+      status: item.status || 'active',
+      createdAt: item.created_at || new Date().toISOString()
+    }))
+    const all = [...apiNormalized, ...allLocal]
     // Normalize reported items to match sampleItems structure
     return all.map(item => ({
       id: item.id,
@@ -168,7 +190,7 @@ export default function search() {
       location: item.location || '',
       date: item.date || item.createdAt,
       photo: item.photo || '',
-      userId: item.userName || '',
+      userId: item.userId || '',
       userName: item.userName || 'Anonymous',
       userPhone: item.userPhone || '',
       reward: item.reward || null,
@@ -176,10 +198,22 @@ export default function search() {
       status: 'active',
       createdAt: item.createdAt || new Date().toISOString()
     }))
-  }, [])
+  }, [apiItems])
 
-  // Combine all items (sample + user-reported)
+  // Combine all items (sample + user-reported from API + local)
   const allItems = [...sampleItems.lost, ...sampleItems.found, ...reportedItems]
+
+  useEffect(() => {
+    const fetchItems = async () => {
+      try {
+        const items = await itemsSupabase.getItems()
+        setApiItems(items || [])
+      } catch (err) {
+        console.error('Failed to fetch items from supabase', err)
+      }
+    }
+    fetchItems()
+  }, [])
 
   // Filter items based on search query, category, and type
   const filteredItems = allItems.filter(item => {

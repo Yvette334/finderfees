@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
 import { authAPI, userAPI } from '../utils/api'
+import { claimsSupabase, itemsSupabase } from '../utils/supabaseAPI'
 
 function Admin() {
   const [pendingClaims, setPendingClaims] = useState([])
@@ -24,12 +25,30 @@ function Admin() {
   }, [])
 
   useEffect(() => {
-    const storedPending = JSON.parse(localStorage.getItem('pendingClaims') || '[]')
-    const storedApproved = JSON.parse(localStorage.getItem('approvedClaims') || '[]')
-    const storedRejected = JSON.parse(localStorage.getItem('rejectedClaims') || '[]')
-    setPendingClaims(storedPending)
-    setApprovedClaims(storedApproved)
-    setRejectedClaims(storedRejected)
+    const load = async () => {
+      try {
+        const pending = await claimsSupabase.getPendingClaims()
+        setPendingClaims(pending || [])
+        // Optionally load approved/rejected via query
+        const items = await itemsSupabase.getItems()
+        // compute some stats
+        const returned = (items || []).filter(i => i.status === 'returned')
+        // fallback to localStorage if supabase returns nothing
+        if ((pending || []).length === 0) {
+          const storedPending = JSON.parse(localStorage.getItem('pendingClaims') || '[]')
+          setPendingClaims(storedPending)
+        }
+      } catch (err) {
+        console.warn('Failed to load admin pending claims via Supabase', err)
+        const storedPending = JSON.parse(localStorage.getItem('pendingClaims') || '[]')
+        const storedApproved = JSON.parse(localStorage.getItem('approvedClaims') || '[]')
+        const storedRejected = JSON.parse(localStorage.getItem('rejectedClaims') || '[]')
+        setPendingClaims(storedPending)
+        setApprovedClaims(storedApproved)
+        setRejectedClaims(storedRejected)
+      }
+    }
+    load()
   }, [])
 
   // Fetch users from database
@@ -86,6 +105,7 @@ function Admin() {
 
   // Calculate statistics
   const stats = useMemo(() => {
+    // Try to use precomputed environment or fallback to local storage
     const allItems = JSON.parse(localStorage.getItem('reportedItems') || '[]')
     const allPayments = JSON.parse(localStorage.getItem('payments') || '[]')
     

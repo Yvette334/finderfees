@@ -60,19 +60,19 @@ function register() {
     setLoading(true)
 
     try {
-      const response = await authAPI.register({
-        fullName,
+      await authAPI.register({
         email,
-        phone,
         password,
+        fullName,
+        phone,
         language
       })
-
-      // User is automatically stored in localStorage by authAPI
       alert(language === 'en' ? 'Registration successful! Redirecting...' : 'Kwiyandikisha byagenze neza! Dukurikira...')
       navigate('/dashboard')
     } catch (err) {
-      setError(err.message || (language === 'en' ? 'Registration failed' : 'Kwiyandikisha byanze'))
+      // Supabase error objects may be Error or contain message
+      const message = err?.message || (err?.error && err.error.message) || (language === 'en' ? 'Registration failed' : 'Kwiyandikisha byanze')
+      setError(message)
     } finally {
       setLoading(false)
     }

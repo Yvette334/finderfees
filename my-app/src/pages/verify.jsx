@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
+import { authSupabase, claimsSupabase } from '../utils/supabaseAPI'
 
 function Verify() {
   const location = useLocation()
@@ -94,7 +95,7 @@ function Verify() {
 
         {!submitted ? (
           <form
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault()
               
               // Validate phone number
@@ -105,25 +106,31 @@ function Verify() {
                 return
               }
               
-              // save to localStorage as pending claim
-              const pending = JSON.parse(localStorage.getItem('pendingClaims') || '[]')
-              const claimRecord = {
-                id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-                itemId: itemId || 'unknown',
-                itemName: itemName || 'Unknown Item',
-                ownerName: ownerName || '',
-                fullName,
-                phone,
-                description,
-                photo: photo || location.state?.photo || '',
-                createdAt: new Date().toISOString()
+              // Use Supabase: require auth to submit a claim
+              const user = await authSupabase.getCurrentUser()
+              if (!user) {
+                alert('Please sign in to submit a claim')
+                return navigate('/auth/login')
               }
-              pending.unshift(claimRecord)
-              localStorage.setItem('pendingClaims', JSON.stringify(pending))
-              // store user identity for dashboard filtering
-              localStorage.setItem('userName', fullName)
-              localStorage.setItem('userPhone', phone)
-              setSubmitted(true)
+
+              const payload = {
+                item_id: itemId || null,
+                itemName: itemName || 'Unknown Item',
+                owner_name: ownerName || '',
+                claimant_id: user.id,
+                claimantName: fullName,
+                claimantPhone: phone,
+                description,
+                photo: photo || location.state?.photo || ''
+              }
+
+              try {
+                await claimsSupabase.createClaim(payload)
+                setSubmitted(true)
+              } catch (err) {
+                console.error('Failed to create claim', err)
+                alert('Failed to submit claim')
+              }
             }}
             className="space-y-5"
           >

@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
+import { authSupabase, itemsSupabase } from '../utils/supabaseAPI'
 
 function Found() {
   const navigate = useNavigate()
@@ -14,17 +15,34 @@ function Found() {
   const [photoPreview, setPhotoPreview] = useState('')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
 
-  const userName = localStorage.getItem('userName') || 'Anonymous'
-  const userPhone = localStorage.getItem('userPhone') || ''
+  const [userName, setUserName] = useState('Anonymous')
+  const [userPhone, setUserPhone] = useState('')
+  const [userId, setUserId] = useState(null)
 
   // Listen for language changes
-  React.useEffect(() => {
+  useEffect(() => {
     const handleLanguageChange = (e) => {
       setLanguage(e.detail || localStorage.getItem('language') || 'en')
     }
     window.addEventListener('languageChanged', handleLanguageChange)
     setLanguage(localStorage.getItem('language') || 'en')
     return () => window.removeEventListener('languageChanged', handleLanguageChange)
+  }, [])
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const u = await authSupabase.getCurrentUser()
+        if (u) {
+          setUserId(u.id)
+          setUserName(u.user_metadata?.fullName || u.email || 'Anonymous')
+          setUserPhone(u.user_metadata?.phone || '')
+        }
+      } catch (err) {
+        console.warn('Supabase get user failed', err)
+      }
+    }
+    loadUser()
   }, [])
 
   const handleFileChange = (e) => {
@@ -50,24 +68,36 @@ function Found() {
     }
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    const all = JSON.parse(localStorage.getItem('reportedItems') || '[]')
-    all.unshift({
-      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+    const user = await authSupabase.getCurrentUser()
+    if (!user) {
+      alert('Please sign in to report an item')
+      return navigate('/auth/login')
+    }
+
+    const payload = {
       type: 'found',
+      item_name: title,
       itemName: title,
       description,
       category: category || 'Other',
       location,
       date: date || new Date().toISOString().slice(0,10),
       photo,
-      userName,
-      userPhone,
-      createdAt: new Date().toISOString(),
-    })
-    localStorage.setItem('reportedItems', JSON.stringify(all))
-    navigate('/dashboard')
+      user_id: user.id,
+      user_name: user.user_metadata?.fullName || user.email || 'Anonymous',
+      userName: user.user_metadata?.fullName || user.email || 'Anonymous',
+      user_phone: user.user_metadata?.phone || ''
+    }
+
+    try {
+      await itemsSupabase.createItem(payload)
+      navigate('/dashboard')
+    } catch (err) {
+      console.error('Create found item failed', err)
+      alert('Failed to submit found item')
+    }
   }
 
   return (

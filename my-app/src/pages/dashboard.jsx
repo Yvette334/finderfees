@@ -2,18 +2,36 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
-import { authAPI } from '../utils/api'
+import { authAPI, statisticsAPI } from '../utils/api'
+import { authSupabase, itemsSupabase, claimsSupabase } from '../utils/supabaseAPI'
 
 function Dashboard() {
   const navigate = useNavigate()
-  const [userName, setUserName] = useState('')
-  const [userPhone, setUserPhone] = useState('')
+  const cachedUser = authAPI.getCurrentUser()
+  const [userName, setUserName] = useState(cachedUser?.fullName || cachedUser?.email || '')
+  const [userPhone, setUserPhone] = useState(cachedUser?.phone || '')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
 
   useEffect(() => {
-    const currentUser = authAPI.getCurrentUser()
-    setUserName(currentUser?.fullName || '')
-    setUserPhone(currentUser?.phone || '')
+    const load = async () => {
+      try {
+        const u = await authSupabase.getCurrentUser()
+        if (u) {
+          setUserName(u.user_metadata?.fullName || u.email || '')
+          setUserPhone(u.user_metadata?.phone || '')
+          // load user's items and claims
+          const items = await itemsSupabase.getItems({ userId: u.id })
+          setReportedItems(items || [])
+          const myClaims = await claimsSupabase.getMyClaims(u.id)
+          setMyClaims(myClaims || [])
+          const stats = await statisticsAPI.getMyStats()
+          setMyStats(stats || {})
+        }
+      } catch (err) {
+        console.error('Dashboard data load failed', err)
+      }
+    }
+    load()
     const handleLanguageChange = (e) => {
       setLanguage(e.detail || localStorage.getItem('language') || 'en')
     }
@@ -22,28 +40,19 @@ function Dashboard() {
     return () => window.removeEventListener('languageChanged', handleLanguageChange)
   }, [])
 
-  const claims = useMemo(() => ({
-    pending: JSON.parse(localStorage.getItem('pendingClaims') || '[]'),
-    approved: JSON.parse(localStorage.getItem('approvedClaims') || '[]'),
-    rejected: JSON.parse(localStorage.getItem('rejectedClaims') || '[]'),
-  }), [])
-
-  const reportedItems = useMemo(() => {
-    const all = JSON.parse(localStorage.getItem('reportedItems') || '[]')
-    if (userPhone) return all.filter(item => item.userPhone === userPhone)
-    if (userName) return all.filter(item => item.userName === userName)
-    return all
-  }, [userName, userPhone])
-
-  const filterMine = (list) => {
-    if (userPhone) return list.filter(c => c.phone === userPhone)
-    if (userName) return list.filter(c => c.fullName === userName)
-    return []
-  }
-
-  const myPending = filterMine(claims.pending)
-  const myApproved = filterMine(claims.approved)
-  const myRejected = filterMine(claims.rejected)
+  const [reportedItems, setReportedItems] = useState([])
+  const [myStats, setMyStats] = useState({
+    totalEarnings: 0,
+    pendingClaims: 0,
+    approvedClaims: 0,
+    returnedItems: 0,
+    totalItems: 0
+  })
+  const [myClaims, setMyClaims] = useState([])
+  const filterMine = (list) => list || []
+  const myPending = myClaims.filter(c => c.status === 'pending')
+  const myApproved = myClaims.filter(c => c.status === 'approved')
+  const myRejected = myClaims.filter(c => c.status === 'rejected')
 
   const [showNotification, setShowNotification] = useState(false)
   const [latestApproved, setLatestApproved] = useState(null)
@@ -71,7 +80,7 @@ function Dashboard() {
 
   const totalItems = reportedItems.length
   const itemsReturned = myApproved.length
-  const totalRewards = myApproved.reduce((sum, c) => sum + (c.reward || 0), 0) + 12500
+  const totalRewards = myStats.totalEarnings || myApproved.reduce((sum, c) => sum + (c.reward || 0), 0)
 
   const recentItems = [...reportedItems]
     .sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))
