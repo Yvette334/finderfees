@@ -142,6 +142,18 @@ export default function search() {
   }, [])
 
   const verifiedSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('verifiedItemIds') || '[]')), [])
+  const paidItemsSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('paidItems') || '[]')), [])
+  
+  // Get approved claims to find finder phone numbers
+  const approvedClaims = useMemo(() => {
+    return JSON.parse(localStorage.getItem('approvedClaims') || '[]')
+  }, [])
+  
+  // Get all found items to match with lost items
+  const foundItems = useMemo(() => {
+    const all = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+    return all.filter(item => item.type === 'found')
+  }, [])
 
   // Get user-reported items from localStorage
   const reportedItems = useMemo(() => {
@@ -280,12 +292,19 @@ export default function search() {
                       </p>
                       <p className="text-xs text-gray-500">
                         {item.type === 'lost' 
-                          ? (verifiedSet.has(item.id) 
-                              ? item.userPhone 
-                              : (language === 'en' 
-                                  ? 'Contact hidden until admin verifies your claim'
-                                  : 'Kontaki yihishe kugeza admin akemeye icyifuzo cyawe'
-                                )
+                          ? (paidItemsSet.has(item.id) 
+                              ? (() => {
+                                  const claim = approvedClaims.find(c => c.itemId === item.id)
+                                  const foundItem = [...sampleItems.found, ...foundItems].find(
+                                    fi => fi.itemName.toLowerCase() === item.itemName.toLowerCase()
+                                  )
+                                  return foundItem?.userPhone || claim?.phone || ''
+                                })()
+                              : verifiedSet.has(item.id)
+                                ? item.userPhone
+                                : (language === 'en' 
+                                    ? 'Contact hidden until payment is made'
+                                    : 'Kontaki yihishe kugeza kwishyura')
                             )
                           : item.userPhone
                         }

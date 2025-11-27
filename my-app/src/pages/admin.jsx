@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
+import { authAPI, userAPI } from '../utils/api'
 
 function Admin() {
   const [pendingClaims, setPendingClaims] = useState([])
   const [approvedClaims, setApprovedClaims] = useState([])
   const [rejectedClaims, setRejectedClaims] = useState([])
+  const [allUsers, setAllUsers] = useState([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
 
   // Listen for language changes
@@ -27,6 +31,85 @@ function Admin() {
     setApprovedClaims(storedApproved)
     setRejectedClaims(storedRejected)
   }, [])
+
+  // Fetch users from database
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (activeTab === 'users') {
+        setLoadingUsers(true)
+        try {
+          const response = await userAPI.getAllUsers()
+          let users = []
+          if (Array.isArray(response)) {
+            users = response
+          } else if (response.users && Array.isArray(response.users)) {
+            users = response.users
+          } else if (response.data && Array.isArray(response.data)) {
+            users = response.data
+          }
+          
+          const currentUser = authAPI.getCurrentUser()
+          if (currentUser) {
+            const currentUserId = currentUser._id || currentUser.id
+            const userExists = users.some(u => {
+              const uid = u._id || u.id
+              return uid && (uid === currentUserId || uid.toString() === currentUserId?.toString())
+            })
+            if (!userExists) {
+              users = [currentUser, ...users]
+            }
+          }
+          
+          setAllUsers(users)
+        } catch (error) {
+          console.error('Error fetching users:', error)
+          const localUsers = JSON.parse(localStorage.getItem('users') || '[]')
+          const currentUser = authAPI.getCurrentUser()
+          if (currentUser) {
+            const currentUserId = currentUser._id || currentUser.id
+            const userExists = localUsers.some(u => (u._id || u.id) === currentUserId)
+            if (!userExists) {
+              setAllUsers([currentUser, ...localUsers])
+            } else {
+              setAllUsers(localUsers)
+            }
+          } else {
+            setAllUsers(localUsers)
+          }
+        } finally {
+          setLoadingUsers(false)
+        }
+      }
+    }
+    fetchUsers()
+  }, [activeTab])
+
+  // Calculate statistics
+  const stats = useMemo(() => {
+    const allItems = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+    const allPayments = JSON.parse(localStorage.getItem('payments') || '[]')
+    
+    const totalUsers = allUsers.length || 1
+    const pendingClaimsCount = pendingClaims.length
+    const totalCommission = allPayments.reduce((sum, p) => sum + (p.platformFee || 1000), 0)
+    
+    const totalItems = allItems.length
+    const lostItems = allItems.filter(item => item.type === 'lost').length
+    const foundItems = allItems.filter(item => item.type === 'found').length
+    const returnedItems = allItems.filter(item => item.status === 'returned').length
+    const activeItems = totalItems - returnedItems
+    
+    return {
+      totalUsers,
+      pendingClaimsCount,
+      totalCommission,
+      totalItems,
+      lostItems,
+      foundItems,
+      returnedItems,
+      activeItems
+    }
+  }, [pendingClaims, allUsers])
 
   const persist = (nextPending, nextApproved, nextRejected, nextVerifiedIds) => {
     localStorage.setItem('pendingClaims', JSON.stringify(nextPending))
@@ -59,6 +142,58 @@ function Admin() {
     persist(nextPending, approvedClaims, nextRejected)
   }
 
+  const handleViewUser = async (userId) => {
+    try {
+      const response = await userAPI.getUserById(userId)
+      let user = null
+      if (response.user) {
+        user = response.user
+      } else if (response.data) {
+        user = response.data
+      } else if (response._id || response.id) {
+        user = response
+      } else {
+        user = allUsers.find(u => (u._id || u.id) === userId)
+      }
+      
+      if (user) {
+        alert(`${language === 'en' ? 'User:' : 'Umukoresha:'} ${user.fullName}\n${language === 'en' ? 'Email:' : 'Imeyili:'} ${user.email}\n${language === 'en' ? 'Phone:' : 'Telefoni:'} ${user.phone || 'N/A'}`)
+      } else {
+        alert(language === 'en' ? 'User not found' : 'Umukoresha ntabwo aboneka')
+      }
+    } catch (error) {
+      console.error('Error fetching user:', error)
+      const localUser = allUsers.find(u => (u._id || u.id) === userId)
+      if (localUser) {
+        alert(`${language === 'en' ? 'User:' : 'Umukoresha:'} ${localUser.fullName}\n${language === 'en' ? 'Email:' : 'Imeyili:'} ${localUser.email}\n${language === 'en' ? 'Phone:' : 'Telefoni:'} ${localUser.phone || 'N/A'}`)
+      } else {
+        alert(language === 'en' ? 'Failed to load user details' : 'Kugenzura amakuru y\'umukoresha byanze')
+      }
+    }
+  }
+
+  const handleDeleteUser = async (userId) => {
+    const confirmMessage = language === 'en' 
+      ? 'Are you sure you want to delete this user? This action cannot be undone.'
+      : 'Urabyemera ko ushaka gusiba uyu mukoresha? Iki gikorwa ntigishobora guhindurwa.'
+    
+    if (!window.confirm(confirmMessage)) {
+      return
+    }
+
+    try {
+      await userAPI.deleteUser(userId)
+      setAllUsers(allUsers.filter(user => {
+        const uid = user._id || user.id
+        return uid && uid.toString() !== userId.toString()
+      }))
+      alert(language === 'en' ? 'User deleted successfully' : 'Umukoresha yasibwe neza')
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      alert(language === 'en' ? 'Failed to delete user' : 'Gusiba umukoresha byanze')
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <Navbar />
@@ -69,107 +204,265 @@ function Admin() {
             ← {language === 'en' ? 'Back to Home' : 'Subira ku Nzu'}
           </Link>
         </div>
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">
-            {language === 'en' ? 'Admin Verification' : 'Gukemura kwa Admin'}
-          </h1>
-          <Link
-            to="/reports"
-            className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            {language === 'en' ? 'View Reports' : 'Reba Raporo'}
-          </Link>
+        <h1 className="text-3xl font-bold text-gray-900 mb-6">
+          {language === 'en' ? 'Admin Dashboard' : 'Dashboard ya Admin'}
+        </h1>
+
+        {/* Tab Navigation */}
+        <div className="border-b border-gray-200 mb-8">
+          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'overview'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {language === 'en' ? 'Overview' : 'Incamake'}
+            </button>
+            <button
+              onClick={() => setActiveTab('claims')}
+              className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'claims'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {language === 'en' ? 'Manage Claims' : 'Gucunga Ibyifuzo'}
+              {pendingClaims.length > 0 && (
+                <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                  {pendingClaims.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'users'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {language === 'en' ? 'Manage Users' : 'Gucunga Abakoresha'}
+            </button>
+          </nav>
         </div>
 
-        <section className="mb-10">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">
-              {language === 'en' ? 'Pending Claims' : 'Ibyifuzo Bitegereje'}
-            </h2>
-            <span className="text-sm text-gray-500">
-              {pendingClaims.length} {language === 'en' ? 'pending' : 'bitegereje'}
-            </span>
-          </div>
-          {pendingClaims.length === 0 ? (
-            <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
-              {language === 'en' ? 'No claims awaiting verification.' : 'Nta byifuzo bitegereje ukemura.'}
+        {/* Overview Tab */}
+        {activeTab === 'overview' && (
+          <>
+            {/* Statistics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Users' : 'Abakoresha Bose'}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.totalUsers}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Pending Claims' : 'Ibyifuzo Bitegereje'}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.pendingClaimsCount}</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Commission' : 'Komisiyo Yose'}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.totalCommission.toLocaleString()} RWF</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Items' : 'Ibintu Byose'}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.totalItems}</p>
+              </div>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {pendingClaims.map(claim => (
-                <div key={claim.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                  {claim.photo ? (
-                    <img src={claim.photo} alt={claim.itemName} className="w-full h-40 object-cover" />
-                  ) : null}
-                  <div className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900">{claim.itemName}</h3>
-                      <span className="text-xs text-gray-500">#{claim.itemId}</span>
-                    </div>
-                    <p className="text-sm text-gray-600 mb-3 line-clamp-3">{claim.description}</p>
-                    <div className="text-xs text-gray-500 mb-3">
-                      <p>
-                        {language === 'en' ? 'Claimant:' : 'Uwiyifuza:'} <span className="font-medium text-gray-900">{claim.fullName}</span> — {claim.phone}
-                      </p>
-                      {claim.ownerName ? (
-                        <p>{language === 'en' ? 'Founder:' : 'Umwubatsi:'} {claim.ownerName}</p>
-                      ) : null}
-                      <p>{language === 'en' ? 'Submitted:' : 'Byoherejwe:'} {new Date(claim.createdAt).toLocaleString()}</p>
-                    </div>
-                    <div className="flex gap-3">
-                      <button onClick={() => handleReject(claim.id)} className="flex-1 bg-red-100 text-red-700 hover:bg-red-200 py-2 rounded-lg text-sm font-medium">
-                        {language === 'en' ? 'Reject' : 'Wanga'}
-                      </button>
-                      <button onClick={() => handleApprove(claim.id)} className="flex-1 bg-green-600 text-white hover:bg-green-700 py-2 rounded-lg text-sm font-medium">
-                        {language === 'en' ? 'Approve' : 'Emeza'}
-                      </button>
+
+            {/* System Overview */}
+            <div className="bg-white border border-gray-200 rounded-xl p-6 mb-8">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                {language === 'en' ? 'System Overview' : 'Incamake y\'Ikigo'}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Lost Items' : 'Ibintu Byabuze'}</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.lostItems}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Found Items' : 'Ibintu Byabonetse'}</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.foundItems}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Active Items' : 'Ibintu Bikora'}</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.activeItems}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Returned Items' : 'Ibintu Byagarutse'}</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.returnedItems}</p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Manage Claims Tab */}
+        {activeTab === 'claims' && (
+          <section className="mb-10">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">
+                {language === 'en' ? 'Pending Claims' : 'Ibyifuzo Bitegereje'}
+              </h2>
+              <span className="text-sm text-gray-500">
+                {pendingClaims.length} {language === 'en' ? 'pending' : 'bitegereje'}
+              </span>
+            </div>
+            {pendingClaims.length === 0 ? (
+              <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
+                {language === 'en' ? 'No claims awaiting verification.' : 'Nta byifuzo bitegereje ukemura.'}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {pendingClaims.map(claim => (
+                  <div key={claim.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                    {claim.photo ? (
+                      <img src={claim.photo} alt={claim.itemName} className="w-full h-40 object-cover" />
+                    ) : null}
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">{claim.itemName}</h3>
+                        <span className="text-xs text-gray-500">#{claim.itemId}</span>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-3 line-clamp-3">{claim.description}</p>
+                      <div className="text-xs text-gray-500 mb-3">
+                        <p>
+                          {language === 'en' ? 'Claimant:' : 'Uwiyifuza:'} <span className="font-medium text-gray-900">{claim.fullName}</span> — {claim.phone}
+                        </p>
+                        {claim.ownerName ? (
+                          <p>{language === 'en' ? 'Founder:' : 'Umwubatsi:'} {claim.ownerName}</p>
+                        ) : null}
+                        <p>{language === 'en' ? 'Submitted:' : 'Byoherejwe:'} {new Date(claim.createdAt).toLocaleString()}</p>
+                      </div>
+                      <div className="flex gap-3">
+                        <button onClick={() => handleReject(claim.id)} className="flex-1 bg-red-100 text-red-700 hover:bg-red-200 py-2 rounded-lg text-sm font-medium">
+                          {language === 'en' ? 'Reject' : 'Wanga'}
+                        </button>
+                        <button onClick={() => handleApprove(claim.id)} className="flex-1 bg-green-600 text-white hover:bg-green-700 py-2 rounded-lg text-sm font-medium">
+                          {language === 'en' ? 'Approve' : 'Emeza'}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Manage Users Tab */}
+        {activeTab === 'users' && (
+          <section className="mb-10">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">
+                {language === 'en' ? 'All Users' : 'Abakoresha Byose'}
+              </h2>
+              <span className="text-sm text-gray-500">
+                {allUsers.length} {language === 'en' ? 'users' : 'abakoresha'}
+              </span>
             </div>
-          )}
-        </section>
-
-        <section className="mb-10">
-          <h2 className="text-xl font-semibold text-gray-900 mb-3">
-            {language === 'en' ? 'Recently Approved' : 'Byemejwe Buzima'}
-          </h2>
-          {approvedClaims.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              {language === 'en' ? 'No approved claims.' : 'Nta byifuzo byemejwe.'}
-            </p>
-          ) : (
-            <ul className="space-y-2 text-sm text-gray-700">
-              {approvedClaims.slice(0, 6).map(c => (
-                <li key={c.id} className="flex items-center justify-between border-b border-gray-100 pb-2">
-                  <span className="truncate">{c.itemName} • {c.fullName}</span>
-                  <span className="text-gray-500">{new Date(c.approvedAt).toLocaleString()}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section>
-          <h2 className="text-xl font-semibold text-gray-900 mb-3">
-            {language === 'en' ? 'Recently Rejected' : 'Byanganywe Buzima'}
-          </h2>
-          {rejectedClaims.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              {language === 'en' ? 'No rejected claims.' : 'Nta byifuzo byanganywe.'}
-            </p>
-          ) : (
-            <ul className="space-y-2 text-sm text-gray-700">
-              {rejectedClaims.slice(0, 6).map(c => (
-                <li key={c.id} className="flex items-center justify-between border-b border-gray-100 pb-2">
-                  <span className="truncate">{c.itemName} • {c.fullName}</span>
-                  <span className="text-gray-500">{new Date(c.rejectedAt).toLocaleString()}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            {loadingUsers ? (
+              <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
+                {language === 'en' ? 'Loading users...' : 'Gusoma abakoresha...'}
+              </div>
+            ) : allUsers.length === 0 ? (
+              <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
+                {language === 'en' ? 'No users found.' : 'Nta bakoresha babonetse.'}
+              </div>
+            ) : (
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        {language === 'en' ? 'Name' : 'Amazina'}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        {language === 'en' ? 'Email' : 'Imeyili'}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        {language === 'en' ? 'Phone' : 'Telefoni'}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        {language === 'en' ? 'Role' : 'Urwego'}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        {language === 'en' ? 'Actions' : 'Ibyakozwe'}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {allUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
+                          {language === 'en' ? 'No users found' : 'Nta bakoresha babonetse'}
+                        </td>
+                      </tr>
+                    ) : (
+                      allUsers.map((user, index) => {
+                        const userId = user._id || user.id || `temp-${index}`
+                        const currentUser = authAPI.getCurrentUser()
+                        const currentUserId = currentUser?._id || currentUser?.id
+                        const isCurrentUser = currentUserId && (
+                          currentUserId === userId || 
+                          currentUserId.toString() === userId.toString() ||
+                          (user.email && currentUser?.email === user.email) ||
+                          (user.phone && currentUser?.phone === user.phone)
+                        )
+                        
+                        return (
+                          <tr key={userId || index} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900">{user.fullName || 'N/A'}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-500">{user.email || 'N/A'}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-500">{user.phone || 'N/A'}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                user.role === 'admin' 
+                                  ? 'bg-purple-100 text-purple-800' 
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {user.role || 'user'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <button 
+                                onClick={() => handleViewUser(userId)}
+                                className="text-blue-600 hover:text-blue-900 mr-3 font-medium"
+                              >
+                                {language === 'en' ? 'View' : 'Reba'}
+                              </button>
+                              {!isCurrentUser && (
+                                <button 
+                                  onClick={() => handleDeleteUser(userId)}
+                                  className="text-red-600 hover:text-red-900 font-medium"
+                                >
+                                  {language === 'en' ? 'Delete' : 'Siba'}
+                                </button>
+                              )}
+                              {isCurrentUser && (
+                                <span className="text-gray-400 text-xs italic">
+                                  {language === 'en' ? '(Current User)' : '(Umukoresha wa None)'}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
       </main>
 
       <Footer />

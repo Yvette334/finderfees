@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
+import { authAPI } from '../utils/api'
 
 function Dashboard() {
   const navigate = useNavigate()
@@ -10,8 +11,9 @@ function Dashboard() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
 
   useEffect(() => {
-    setUserName(localStorage.getItem('userName') || '')
-    setUserPhone(localStorage.getItem('userPhone') || '')
+    const currentUser = authAPI.getCurrentUser()
+    setUserName(currentUser?.fullName || '')
+    setUserPhone(currentUser?.phone || '')
     const handleLanguageChange = (e) => {
       setLanguage(e.detail || localStorage.getItem('language') || 'en')
     }
@@ -156,16 +158,6 @@ function Dashboard() {
             <div>
               <p className="font-semibold text-gray-900 mb-1">{language === 'en' ? 'Browse Items' : 'Shakisha Ibintu'}</p>
               <p className="text-sm text-gray-500">{language === 'en' ? 'Search for your lost items' : 'Shakisha ibintu byawe byabuze'}</p>
-            </div>
-          </Link>
-          <Link 
-            to="/messages"
-            className="bg-white border border-gray-200 rounded-xl p-6 flex items-start gap-4 hover:border-gray-300 transition-colors text-left"
-          >
-            <div className="h-12 w-12 rounded-lg bg-gray-100 flex items-center justify-center text-2xl">💬</div>
-            <div>
-              <p className="font-semibold text-gray-900 mb-1">{language === 'en' ? 'Messages' : 'Amatangazo'}</p>
-              <p className="text-sm text-gray-500">{language === 'en' ? 'View your conversations' : 'Reba makoresha yawe'}</p>
             </div>
           </Link>
           <Link 

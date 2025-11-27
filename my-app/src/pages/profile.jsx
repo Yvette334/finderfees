@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
+import { authAPI, userAPI } from '../utils/api'
 
 function Profile() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
@@ -9,6 +10,7 @@ function Profile() {
   const [userPhone, setUserPhone] = useState('')
   const [userEmail, setUserEmail] = useState('')
   const [isEditing, setIsEditing] = useState(false)
+  const [phoneError, setPhoneError] = useState('')
 
   useEffect(() => {
     const handleLanguageChange = (e) => {
@@ -20,16 +22,50 @@ function Profile() {
   }, [])
 
   useEffect(() => {
-    setUserName(localStorage.getItem('userName') || '')
-    setUserPhone(localStorage.getItem('userPhone') || '')
-    setUserEmail(localStorage.getItem('userEmail') || '')
+    const currentUser = authAPI.getCurrentUser()
+    setUserName(currentUser?.fullName || '')
+    setUserPhone(currentUser?.phone || '')
+    setUserEmail(currentUser?.email || '')
   }, [])
 
-  const handleSave = () => {
-    localStorage.setItem('userName', userName)
-    localStorage.setItem('userPhone', userPhone)
-    localStorage.setItem('userEmail', userEmail)
-    setIsEditing(false)
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, '') // Only allow numbers
+    if (value.length <= 10) {
+      setUserPhone(value)
+      if (value.length === 10) {
+        setPhoneError('')
+      } else if (value.length > 0) {
+        setPhoneError(language === 'en' 
+          ? 'Phone number must be 10 digits' 
+          : 'Numero ya telefoni igomba kuba inyuguti 10')
+      } else {
+        setPhoneError('')
+      }
+    }
+  }
+
+  const handleSave = async () => {
+    // Validate phone number
+    if (userPhone && userPhone.length !== 10) {
+      setPhoneError(language === 'en' 
+        ? 'Phone number must be exactly 10 digits' 
+        : 'Numero ya telefoni igomba kuba inyuguti 10')
+      return
+    }
+    
+    try {
+      await userAPI.updateProfile({
+        fullName: userName,
+        phone: userPhone,
+        email: userEmail
+      })
+      const updatedUser = { ...authAPI.getCurrentUser(), fullName: userName, phone: userPhone, email: userEmail }
+      localStorage.setItem('user', JSON.stringify(updatedUser))
+      setIsEditing(false)
+      setPhoneError('')
+    } catch (error) {
+      alert(language === 'en' ? 'Failed to update profile' : 'Kugenzura profayili byanze')
+    }
   }
 
   const reportedItems = JSON.parse(localStorage.getItem('reportedItems') || '[]')
@@ -138,12 +174,28 @@ function Profile() {
                 {language === 'en' ? 'Phone Number' : 'Numero ya Telefoni'}
               </label>
               {isEditing ? (
+                <>
                 <input
                   type="tel"
                   value={userPhone}
-                  onChange={(e) => setUserPhone(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900"
-                />
+                    onChange={handlePhoneChange}
+                    maxLength={10}
+                    className={`w-full px-4 py-2 border rounded-lg focus:outline-none transition-colors ${
+                      phoneError ? 'border-red-500' : 'border-gray-300 focus:border-gray-900'
+                    }`}
+                  />
+                  {phoneError && (
+                    <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+                  )}
+                  {!phoneError && userPhone.length > 0 && userPhone.length < 10 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {language === 'en' 
+                        ? `${10 - userPhone.length} more digit${10 - userPhone.length > 1 ? 's' : ''} needed`
+                        : `Hari inyuguti ${10 - userPhone.length} zisigaye`
+                      }
+                    </p>
+                  )}
+                </>
               ) : (
                 <p className="text-gray-900">{userPhone || '—'}</p>
               )}

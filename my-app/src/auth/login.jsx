@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react'
-import {Link} from "react-router-dom"
-export default function login() {
-const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
+import { Link, useNavigate } from "react-router-dom"
+import { authAPI } from '../utils/api'
+
+export default function Login() {
+  const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     const handleLanguageChange = (e) => {
@@ -16,6 +23,23 @@ const [language, setLanguage] = useState(() => localStorage.getItem('language') 
     localStorage.setItem('language', language)
     window.dispatchEvent(new CustomEvent('languageChanged', { detail: language }))
   }, [language])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
+    try {
+      const response = await authAPI.login(email, password)
+      if (response.token) {
+        navigate('/dashboard')
+      }
+    } catch (err) {
+      setError(err.message || (language === 'en' ? 'Login failed. Please check your credentials.' : 'Kwinjira byanze. Ongera ugerageze.'))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white p-4 relative">
@@ -43,23 +67,49 @@ const [language, setLanguage] = useState(() => localStorage.getItem('language') 
                   {language === 'en' ? 'Welcome Back' : 'Murakaza neza'}
                 </h2>
                 <p className="text-sm text-gray-600 mb-6">
-                  {language === 'en' ? 'Login to your Finders Fee account' : 'Injira kuri konti yawe ya Finders Fee'}
+                  {language === 'en' ? 'Login to your Finders Fee account' : 'Injira kuri konti yawe kuri Finders Fee'}
                 </p>
-                <form action="" className="space-y-5">
+                {error && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                    {error}
+                  </div>
+                )}
+                <form onSubmit={handleSubmit} className="space-y-5">
                     <div>
                     <label className="block text-sm font-semibold text-gray-900 mb-1">
                       {language === 'en' ? 'Email' : 'Imeyili'}
                     </label>
-                    <input type="email" placeholder={language === 'en' ? 'Enter you email' : 'Injiza imeyili yawe'} required className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors"/>
+                    <input 
+                      type="email" 
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder={language === 'en' ? 'Enter your email' : 'Injiza imeyili yawe'} 
+                      required 
+                      className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors"
+                    />
                     </div>
                     <div>
                         <label className="block text-sm font-semibold text-gray-900 mb-1">
                           {language === 'en' ? 'Password' : 'Ijambobanga'}
                         </label>
-                        <input type="password" required placeholder={language === 'en' ? 'Password' : 'Ijambobanga'} className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" />
+                        <input 
+                          type="password" 
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          required 
+                          placeholder={language === 'en' ? 'Password' : 'Ijambobanga'} 
+                          className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" 
+                        />
                     </div>
-                    <button type="submit" className="w-full bg-black text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity">
-                      {language === 'en' ? 'Login' : 'Injira'}
+                    <button 
+                      type="submit" 
+                      disabled={loading}
+                      className="w-full bg-black text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading 
+                        ? (language === 'en' ? 'Logging in...' : 'Kwinjira...')
+                        : (language === 'en' ? 'Login' : 'Injira')
+                      }
                     </button>
                 </form>
             </div>

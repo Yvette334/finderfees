@@ -12,6 +12,7 @@ function Payment() {
   const [phoneNumber, setPhoneNumber] = useState('')
   const [processing, setProcessing] = useState(false)
   const [completed, setCompleted] = useState(false)
+  const [phoneError, setPhoneError] = useState('')
 
   useEffect(() => {
     const handleLanguageChange = (e) => {
@@ -22,10 +23,30 @@ function Payment() {
     return () => window.removeEventListener('languageChanged', handleLanguageChange)
   }, [])
 
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, '') // Only allow numbers
+    if (value.length <= 10) {
+      setPhoneNumber(value)
+      if (value.length === 10) {
+        setPhoneError('')
+      } else if (value.length > 0) {
+        setPhoneError(language === 'en' 
+          ? 'Phone number must be 10 digits' 
+          : 'Numero ya telefoni igomba kuba inyuguti 10')
+      } else {
+        setPhoneError('')
+      }
+    }
+  }
+
   const handlePayment = async (e) => {
     e.preventDefault()
-    if (!phoneNumber.trim()) {
-      alert(language === 'en' ? 'Please enter your phone number' : 'Injiza numero ya telefoni yawe')
+    
+    // Validate phone number
+    if (phoneNumber.length !== 10) {
+      setPhoneError(language === 'en' 
+        ? 'Phone number must be exactly 10 digits' 
+        : 'Numero ya telefoni igomba kuba inyuguti 10')
       return
     }
 
@@ -33,6 +54,24 @@ function Payment() {
     
     // Simulate payment processing
     setTimeout(() => {
+      // Mark this item as paid
+      const paidItemIds = JSON.parse(localStorage.getItem('paidItemIds') || '[]')
+      if (claimId && !paidItemIds.includes(claimId)) {
+        paidItemIds.push(claimId)
+        localStorage.setItem('paidItemIds', JSON.stringify(paidItemIds))
+      }
+      
+      // Also mark the itemId as paid if we have it from approved claims
+      const approvedClaims = JSON.parse(localStorage.getItem('approvedClaims') || '[]')
+      const claim = approvedClaims.find(c => c.id === claimId)
+      if (claim && claim.itemId) {
+        const paidItems = JSON.parse(localStorage.getItem('paidItems') || '[]')
+        if (!paidItems.includes(claim.itemId)) {
+          paidItems.push(claim.itemId)
+          localStorage.setItem('paidItems', JSON.stringify(paidItems))
+        }
+      }
+      
       setProcessing(false)
       setCompleted(true)
       // In real app, this would call payment API
@@ -143,16 +182,30 @@ function Payment() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {language === 'en' ? 'Phone Number' : 'Numero ya Telefoni'}
+                  {language === 'en' ? 'Phone Number' : 'Numero ya Telefoni'} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="tel"
                   required
                   value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="0788 123 456"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900"
+                  onChange={handlePhoneChange}
+                  placeholder={language === 'en' ? '0788123456' : '0788123456'}
+                  maxLength={10}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none transition-colors ${
+                    phoneError ? 'border-red-500' : 'border-gray-300 focus:border-gray-900'
+                  }`}
                 />
+                {phoneError && (
+                  <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+                )}
+                {!phoneError && phoneNumber.length > 0 && phoneNumber.length < 10 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {language === 'en' 
+                      ? `${10 - phoneNumber.length} more digit${10 - phoneNumber.length > 1 ? 's' : ''} needed`
+                      : `Hari inyuguti ${10 - phoneNumber.length} zisigaye`
+                    }
+                  </p>
+                )}
               </div>
 
               {processing ? (

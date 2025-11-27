@@ -11,8 +11,11 @@ function Verify() {
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
   const [description, setDescription] = useState('')
+  const [photo, setPhoto] = useState('')
+  const [photoPreview, setPhotoPreview] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
+  const [phoneError, setPhoneError] = useState('')
 
   // Listen for language changes
   useEffect(() => {
@@ -23,6 +26,45 @@ function Verify() {
     setLanguage(localStorage.getItem('language') || 'en')
     return () => window.removeEventListener('languageChanged', handleLanguageChange)
   }, [])
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, '') // Only allow numbers
+    if (value.length <= 10) {
+      setPhone(value)
+      if (value.length === 10) {
+        setPhoneError('')
+      } else if (value.length > 0) {
+        setPhoneError(language === 'en' 
+          ? 'Phone number must be 10 digits' 
+          : 'Numero ya telefoni igomba kuba inyuguti 10')
+      } else {
+        setPhoneError('')
+      }
+    }
+  }
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert(language === 'en' ? 'Please select an image file' : 'Hitamo dosiye y\'ishusho')
+        return
+      }
+      // Validate file size (10MB max)
+      if (file.size > 10 * 1024 * 1024) {
+        alert(language === 'en' ? 'File size must be less than 10MB' : 'Ingano y\'idosiye igomba kuba nto kuruta 10MB')
+        return
+      }
+      // Convert to data URL for storage
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setPhoto(reader.result)
+        setPhotoPreview(reader.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -54,6 +96,15 @@ function Verify() {
           <form
             onSubmit={(e) => {
               e.preventDefault()
+              
+              // Validate phone number
+              if (phone.length !== 10) {
+                setPhoneError(language === 'en' 
+                  ? 'Phone number must be exactly 10 digits' 
+                  : 'Numero ya telefoni igomba kuba inyuguti 10')
+                return
+              }
+              
               // save to localStorage as pending claim
               const pending = JSON.parse(localStorage.getItem('pendingClaims') || '[]')
               const claimRecord = {
@@ -64,8 +115,8 @@ function Verify() {
                 fullName,
                 phone,
                 description,
-                createdAt: new Date().toISOString(),
-                photo: location.state?.photo || ''
+                photo: photo || location.state?.photo || '',
+                createdAt: new Date().toISOString()
               }
               pending.unshift(claimRecord)
               localStorage.setItem('pendingClaims', JSON.stringify(pending))
@@ -91,16 +142,66 @@ function Verify() {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-1">
-                {language === 'en' ? 'Phone number' : 'Numero ya telefoni'}
+                {language === 'en' ? 'Phone number' : 'Numero ya telefoni'} <span className="text-red-500">*</span>
               </label>
               <input
                 type="tel"
                 required
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="0788 123 456"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-gray-900 transition-colors"
+                onChange={handlePhoneChange}
+                placeholder={language === 'en' ? '0788123456' : '0788123456'}
+                maxLength={10}
+                className={`w-full px-4 py-3 border rounded-lg focus:outline-none transition-colors ${
+                  phoneError ? 'border-red-500' : 'border-gray-300 focus:border-gray-900'
+                }`}
               />
+              {phoneError && (
+                <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+              )}
+              {!phoneError && phone.length > 0 && phone.length < 10 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {language === 'en' 
+                    ? `${10 - phone.length} more digit${10 - phone.length > 1 ? 's' : ''} needed`
+                    : `Hari inyuguti ${10 - phone.length} zisigaye`
+                  }
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-900 mb-1">
+                {language === 'en' ? 'Supporting Photo (Optional)' : 'Ishusho Yashyigikiye (Ntibyuzuye)'}
+              </label>
+              <label className="w-full border-2 border-dashed border-gray-300 rounded-lg h-40 flex flex-col items-center justify-center text-sm text-gray-600 cursor-pointer hover:border-gray-400 transition-colors">
+                <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                {photoPreview ? (
+                  <div className="w-full h-full relative">
+                    <img src={photoPreview} alt="Preview" className="w-full h-full object-cover rounded-lg" />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setPhoto('')
+                        setPhotoPreview('')
+                      }}
+                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="text-2xl mb-2">⬆️</div>
+                    <div>{language === 'en' ? 'Click to upload or drag and drop' : 'Kanda kugirango wongereho cyangwa kurura'}</div>
+                    <div className="text-xs text-gray-400 mt-1">PNG, JPG up to 10MB</div>
+                  </>
+                )}
+              </label>
+              <p className="text-xs text-gray-500 mt-1">
+                {language === 'en' 
+                  ? 'Optional: Upload a photo that helps prove this item belongs to you (e.g., receipt, photo of you with the item, etc.)'
+                  : 'Ntibyuzuye: Ongeraho ishusho ishyigikiye ko iki kintu ni cyawe (urugero: inyemezabuguzi, ishusho yawe hamwe n\'ikintu, n\'ibindi)'
+                }
+              </p>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-900 mb-2">

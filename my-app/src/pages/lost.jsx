@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
+import { authAPI } from '../utils/api'
 
 function Lost() {
   const navigate = useNavigate()
@@ -14,8 +15,9 @@ function Lost() {
   const [photoPreview, setPhotoPreview] = useState('')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
 
-  const userName = localStorage.getItem('userName') || 'Anonymous'
-  const userPhone = localStorage.getItem('userPhone') || ''
+  const currentUser = authAPI.getCurrentUser()
+  const userName = currentUser?.fullName || 'Anonymous'
+  const userPhone = currentUser?.phone || ''
 
   // Listen for language changes
   React.useEffect(() => {

@@ -1,8 +1,17 @@
 import React, { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { authAPI } from '../utils/api'
 
 function register() {
+  const navigate = useNavigate()
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [phoneError, setPhoneError] = useState('')
 
   // Listen for language changes
   useEffect(() => {
@@ -19,6 +28,55 @@ function register() {
     localStorage.setItem('language', language)
     window.dispatchEvent(new CustomEvent('languageChanged', { detail: language }))
   }, [language])
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, '') // Only allow numbers
+    if (value.length <= 10) {
+      setPhone(value)
+      if (value.length === 10) {
+        setPhoneError('')
+      } else if (value.length > 0) {
+        setPhoneError(language === 'en' 
+          ? 'Phone number must be 10 digits' 
+          : 'Numero ya telefoni igomba kuba inyuguti 10')
+      } else {
+        setPhoneError('')
+      }
+    }
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    
+    // Validate phone number
+    if (phone.length !== 10) {
+      setPhoneError(language === 'en' 
+        ? 'Phone number must be exactly 10 digits' 
+        : 'Numero ya telefoni igomba kuba inyuguti 10')
+      return
+    }
+    
+    setLoading(true)
+
+    try {
+      const response = await authAPI.register({
+        fullName,
+        email,
+        phone,
+        password,
+        language
+      })
+
+      // User is automatically stored in localStorage by authAPI
+      alert(language === 'en' ? 'Registration successful! Redirecting...' : 'Kwiyandikisha byagenze neza! Dukurikira...')
+      navigate('/dashboard')
+    } catch (err) {
+      setError(err.message || (language === 'en' ? 'Registration failed' : 'Kwiyandikisha byanze'))
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white p-4 relative">
@@ -48,33 +106,88 @@ function register() {
           <p className="text-sm text-gray-600 mb-6">
             {language === 'en' ? 'Create your Finders Fee account' : 'Kora konti yawe ya Finders Fee'}
           </p>
-          <form className="space-y-5">
-            <div >
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+            <div>
               <label className="block text-sm font-semibold text-gray-900 mb-1">
                 {language === 'en' ? 'Full name' : 'Amazina yuzuye'}
               </label>
-              <input type="text" name="name" placeholder={language === 'en' ? 'Enter the name' : 'Injiza amazina yawe'} required className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" />
+              <input 
+                type="text" 
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder={language === 'en' ? 'Enter the name' : 'Injiza amazina yawe'} 
+                required 
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" 
+              />
             </div>
-            <div >
+            <div>
               <label className="block text-sm font-semibold text-gray-900 mb-1">
                 {language === 'en' ? 'Email' : 'Imeyili'}
               </label>
-              <input type="email" name="email" placeholder={language === 'en' ? 'Enter your email' : 'Injiza imeyili yawe'} required className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" />
+              <input 
+                type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={language === 'en' ? 'Enter your email' : 'Injiza imeyili yawe'} 
+                required 
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" 
+              />
             </div>
-            <div >
+            <div>
               <label className="block text-sm font-semibold text-gray-900 mb-1">
-                {language === 'en' ? 'Phone Number' : 'Numero ya telefoni'}
+                {language === 'en' ? 'Phone Number' : 'Numero ya telefoni'} <span className="text-red-500">*</span>
               </label>
-              <input type="number" name="phone" placeholder={language === 'en' ? '0788123456' : '0788123456'} required className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" />
+              <input 
+                type="tel" 
+                value={phone}
+                onChange={handlePhoneChange}
+                placeholder={language === 'en' ? '0788123456' : '0788123456'} 
+                required 
+                maxLength={10}
+                className={`w-full px-4 py-3 border rounded-lg outline-none transition-colors ${
+                  phoneError ? 'border-red-500' : 'border-gray-200 focus:border-gray-900'
+                }`}
+              />
+              {phoneError && (
+                <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+              )}
+              {!phoneError && phone.length > 0 && phone.length < 10 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {language === 'en' 
+                    ? `${10 - phone.length} more digit${10 - phone.length > 1 ? 's' : ''} needed`
+                    : `Hari inyuguti ${10 - phone.length} zisigaye`
+                  }
+                </p>
+              )}
             </div>
-            <div >
+            <div>
               <label className="block text-sm font-semibold text-gray-900 mb-1">
                 {language === 'en' ? 'Password' : 'Ijambobanga'}
               </label>
-              <input type="password" name="password" required minLength="6" placeholder={language === 'en' ? 'Password' : 'Ijambobanga'} className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" />
+              <input 
+                type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required 
+                minLength="6" 
+                placeholder={language === 'en' ? 'Password' : 'Ijambobanga'} 
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" 
+              />
             </div>
-            <button type="submit" className="w-full bg-black text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity">
-              {language === 'en' ? 'Register' : 'Kwiyandikisha'}
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="w-full bg-black text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading 
+                ? (language === 'en' ? 'Registering...' : 'Kwiyandikisha...') 
+                : (language === 'en' ? 'Register' : 'Kwiyandikisha')
+              }
             </button>
           </form>
         </div>

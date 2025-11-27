@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { Link } from "react-router-dom"
+import { authAPI } from '../utils/api'
 
 function Navbar() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
@@ -21,8 +22,9 @@ function Navbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const userName = localStorage.getItem('userName') || ''
-  const userPhone = localStorage.getItem('userPhone') || ''
+  const currentUser = authAPI.getCurrentUser()
+  const userName = currentUser?.fullName || ''
+  const userPhone = currentUser?.phone || ''
 
   const claims = useMemo(() => ({
     approved: JSON.parse(localStorage.getItem('approvedClaims') || '[]'),
@@ -79,9 +81,6 @@ function Navbar() {
           </Link>
           <Link to="/dashboard" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
             {language === 'en' ? 'Dashboard' : 'Ikibaho'}
-          </Link>
-          <Link to="/messages" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
-            {language === 'en' ? 'Messages' : 'Amatangazo'}
           </Link>
           <Link to="/profile" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
             {language === 'en' ? 'Profile' : 'Profayili'}
@@ -158,10 +157,12 @@ function Navbar() {
             )}
           </div>
 
-          <Link to="/login">
-            <button className="text-sm bg-gray-900 text-white px-3 py-2 rounded-lg hover:opacity-90 transition-opacity">
+          <Link 
+            to="/"
+              onClick={() => authAPI.logout()}
+            className="text-sm bg-gray-900 text-white px-3 py-2 rounded-lg hover:opacity-90 transition-opacity inline-block"
+            >
               {language === 'en' ? 'Logout' : 'Sohoka'}
-            </button>
           </Link>
           <select 
             value={language}
