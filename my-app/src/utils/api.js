@@ -124,11 +124,80 @@ export const userAPI = {
 
   getAllUsers: async () => {
     try {
-      const { data, error } = await supabase.from(PROFILES_TABLE).select('*').order('updated_at', { ascending: false })
-      if (error) throw error
-      return (data || []).map(mapProfileRow)
+      // First, try to get all users from auth.users via RPC function (includes unverified)
+      try {
+        const { data: allAuthUsers, error: authError } = await supabase
+          .rpc('get_all_users')
+        
+        if (!authError && allAuthUsers && allAuthUsers.length > 0) {
+          // Fetch profiles to merge role and additional info
+          const { data: profiles, error: profilesError } = await supabase
+            .from(PROFILES_TABLE)
+            .select('*')
+          
+          // Create a map of profiles by ID
+          const profilesMap = new Map()
+          if (!profilesError && profiles) {
+            profiles.forEach(profile => {
+              profilesMap.set(profile.id, profile)
+            })
+          }
+          
+          // Merge auth users with profiles data
+          const usersMap = new Map()
+          
+          // Process all auth users (including unverified)
+          allAuthUsers.forEach(authUser => {
+            const profile = profilesMap.get(authUser.id)
+            const userMetadata = authUser.user_metadata || {}
+            
+            usersMap.set(authUser.id, {
+              id: authUser.id,
+              _id: authUser.id, // For compatibility
+              email: authUser.email || '',
+              email_confirmed_at: authUser.email_confirmed_at,
+              created_at: authUser.created_at,
+              updated_at: profile?.updated_at || authUser.created_at,
+              fullName: profile?.full_name || userMetadata?.fullName || userMetadata?.full_name || '',
+              phone: profile?.phone || userMetadata?.phone || '',
+              role: profile?.role || null,
+              verified: !!authUser.email_confirmed_at,
+              language: profile?.language || userMetadata?.language || 'en'
+            })
+          })
+          
+          // Also add any profiles that might not be in auth.users
+          if (!profilesError && profiles) {
+            profiles.forEach(profile => {
+              if (!usersMap.has(profile.id)) {
+                usersMap.set(profile.id, mapProfileRow(profile))
+              }
+            })
+          }
+          
+          // Return sorted by creation date (newest first)
+          return Array.from(usersMap.values()).sort((a, b) => {
+            const dateA = new Date(a.created_at || 0)
+            const dateB = new Date(b.created_at || 0)
+            return dateB - dateA
+          })
+        }
+      } catch (rpcError) {
+        console.warn('RPC get_all_users not available or failed:', rpcError.message)
+      }
+      
+      // Fallback: Fetch from profiles table only (will miss unverified users without profiles)
+      const { data: profiles, error: profilesError } = await supabase
+        .from(PROFILES_TABLE)
+        .select('*')
+        .order('updated_at', { ascending: false })
+      
+      if (profilesError) throw profilesError
+      
+      // Map profiles to user format
+      return (profiles || []).map(mapProfileRow)
     } catch (error) {
-      console.warn('Falling back to local users:', error.message || error)
+      console.warn('Error fetching users, falling back to local:', error.message || error)
       return fallbackUsers()
     }
   },

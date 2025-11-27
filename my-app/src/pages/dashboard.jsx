@@ -18,6 +18,23 @@ function Dashboard() {
       try {
         const u = await authSupabase.getCurrentUser()
         if (u) {
+          // Check role in user metadata first; if admin redirect
+          const metaRole = u?.user_metadata?.role || u?.user_metadata?.role?.toLowerCase?.()
+          if (metaRole && String(metaRole).toLowerCase() === 'admin') {
+            navigate('/admin')
+            return
+          }
+          // Check role and redirect to admin if required
+          try {
+            const { data: profile } = await supabase.from('profiles').select('role').eq('id', u.id).maybeSingle()
+            const role = profile?.role?.toLowerCase?.() || profile?.role || ''
+            if (role === 'admin') {
+              navigate('/admin')
+              return
+            }
+          } catch (e) {
+            // ignore role lookup errors; continue to load dashboard
+          }
           setCurrentUserId(u.id)
           setUserName(u.user_metadata?.fullName || u.email || '')
           setUserPhone(u.user_metadata?.phone || '')

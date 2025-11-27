@@ -2,11 +2,13 @@ import { useState, useMemo, useEffect, useRef } from "react"
 import { Link } from "react-router-dom"
 import { authAPI } from '../utils/api'
 import { authSupabase } from '../utils/supabaseAPI'
+import supabase from '../utils/supabaseClient'
 
 function Navbar() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   const dropdownRef = useRef(null)
 
   useEffect(() => {
@@ -19,8 +21,26 @@ function Navbar() {
       try {
         const user = await authSupabase.getCurrentUser()
         setIsAuthenticated(!!user)
+        if (user) {
+          // First check role in auth.user_metadata
+          const metaRole = user?.user_metadata?.role || user?.user_metadata?.role?.toLowerCase?.()
+          if (metaRole && String(metaRole).toLowerCase() === 'admin') {
+            setIsAdmin(true)
+          } else {
+            try {
+              const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+              const role = profile?.role?.toLowerCase?.() || profile?.role || ''
+              setIsAdmin(role === 'admin')
+            } catch (e) {
+              setIsAdmin(false)
+            }
+          }
+        } else {
+          setIsAdmin(false)
+        }
       } catch (err) {
         setIsAuthenticated(false)
+        setIsAdmin(false)
       }
     }
     checkAuth()
@@ -40,11 +60,7 @@ function Navbar() {
   const userName = currentUser?.fullName || ''
   const userPhone = currentUser?.phone || ''
 
-  // Don't render navbar if not authenticated
-  if (!isAuthenticated) {
-    return null
-  }
-
+  // All hooks must be called before any conditional returns
   const claims = useMemo(() => ({
     approved: JSON.parse(localStorage.getItem('approvedClaims') || '[]'),
   }), [])
@@ -55,14 +71,20 @@ function Navbar() {
     return []
   }
 
-  const myApproved = filterMine(claims.approved)
+  const myApproved = useMemo(() => filterMine(claims.approved), [claims.approved, userPhone, userName])
 
   const notifications = useMemo(() => {
+    if (!isAuthenticated) return []
     const viewedIds = JSON.parse(localStorage.getItem('viewedNotifications') || '[]')
     return myApproved.filter(claim => !viewedIds.includes(claim.id))
-  }, [myApproved])
+  }, [myApproved, isAuthenticated])
 
   const unreadCount = notifications.length
+
+  // Don't render navbar if not authenticated (after all hooks)
+  if (!isAuthenticated) {
+    return null
+  }
 
   const markAsRead = (claimId) => {
     const viewedIds = JSON.parse(localStorage.getItem('viewedNotifications') || '[]')
@@ -102,6 +124,11 @@ function Navbar() {
           <Link to="/profile" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
             {language === 'en' ? 'Profile' : 'Profayili'}
           </Link>
+          {isAdmin && (
+            <Link to="/admin" className="hidden sm:inline-block text-sm text-gray-600 hover:text-gray-900">
+              {language === 'en' ? 'Admin' : 'Ubuyobozi'}
+            </Link>
+          )}
           
           <div className="relative" ref={dropdownRef}>
             <button
@@ -176,7 +203,7 @@ function Navbar() {
 
           <Link 
             to="/"
-              onClick={() => authAPI.logout()}
+              onClick={async () => { try { await authSupabase.signOut() } catch (e) {}; authAPI.logout() }}
             className="text-sm bg-gray-900 text-white px-3 py-2 rounded-lg hover:opacity-90 transition-opacity inline-block"
             >
               {language === 'en' ? 'Logout' : 'Sohoka'}

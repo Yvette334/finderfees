@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { authAPI } from '../utils/api'
 import { authSupabase } from '../utils/supabaseAPI'
+import supabase from '../utils/supabaseClient'
 
 function register() {
   const navigate = useNavigate()
@@ -20,6 +20,16 @@ function register() {
       try {
         const user = await authSupabase.getCurrentUser()
         if (user) {
+          try {
+            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+            const role = profile?.role?.toLowerCase?.() || profile?.role || ''
+            if (role === 'admin') {
+              navigate('/admin', { replace: true })
+              return
+            }
+          } catch (e) {
+            // ignore
+          }
           navigate('/dashboard', { replace: true })
         }
       } catch (err) {
@@ -76,15 +86,42 @@ function register() {
     setLoading(true)
 
     try {
-      await authAPI.register({
+      const res = await authSupabase.signUp({
         email,
         password,
         fullName,
         phone,
         language
       })
-      alert(language === 'en' ? 'Registration successful! Please login to continue.' : 'Kwiyandikisha byagenze neza! Nyamuneka winjire kugirango ukomeze.')
-      navigate('/login')
+      const user = res?.user || res?.data?.user || null
+        if (user) {
+          try {
+            localStorage.setItem('user', JSON.stringify(user))
+          } catch (e) {}
+          // Check role in metadata first
+          const metaRole = user?.user_metadata?.role || user?.user_metadata?.role?.toLowerCase?.()
+          if (metaRole && String(metaRole).toLowerCase() === 'admin') {
+            navigate('/admin')
+            return
+          }
+          // Check role and route accordingly using profiles table as fallback
+          try {
+            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+            const role = profile?.role?.toLowerCase?.() || profile?.role || ''
+            if (role === 'admin') {
+              navigate('/admin')
+            } else {
+              navigate('/dashboard')
+            }
+          } catch (e) {
+            alert(language === 'en' ? 'Registration successful! Redirecting...' : 'Kwiyandikisha byagenze neza! Dukurikira...')
+            navigate('/dashboard')
+          }
+      } else {
+        // If no immediate user object returned, redirect to login
+        alert(language === 'en' ? 'Registration successful! Please login to continue.' : 'Kwiyandikisha byagenze neza! Nyamuneka winjire kugirango ukomeze.')
+        navigate('/login')
+      }
     } catch (err) {
       // Supabase error objects may be Error or contain message
       const message = err?.message || (err?.error && err.error.message) || (language === 'en' ? 'Registration failed' : 'Kwiyandikisha byanze')

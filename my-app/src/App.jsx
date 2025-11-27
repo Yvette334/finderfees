@@ -2,9 +2,8 @@ import './App.css'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Login from "./auth/login"
 import Register from "./auth/register"
-import ResetPassword from "./auth/reset-password"
 import Home from './pages/Home'
-import Search from './pages/search'
+import Search from './pages/Search'
 import Verify from './pages/verify'
 import Admin from './pages/admin'
 import Dashboard from './pages/dashboard'
@@ -22,7 +21,7 @@ function App() {
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/reset-password" element={<ResetPassword />} />
+      
       <Route path="/search" element={<Search />} />
       
       {/* Protected routes - require authentication */}

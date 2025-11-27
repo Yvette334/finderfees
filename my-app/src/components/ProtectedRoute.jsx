@@ -17,15 +17,54 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
           
           // Check if admin role is required
           if (requireAdmin) {
-            // Check user role from profiles table
-            const { data: profile, error } = await supabase
-              .from('profiles')
-              .select('role')
-              .eq('id', user.id)
-              .single()
-            
-            if (!error && profile && profile.role === 'admin') {
+            // First, check user metadata on Supabase auth (faster)
+            const userRoleMeta = user?.user_metadata?.role || user?.user_metadata?.role?.toLowerCase?.()
+            if (userRoleMeta && String(userRoleMeta).toLowerCase() === 'admin') {
               setIsAdmin(true)
+              setLoading(false)
+              return
+            }
+            // Check user role from profiles table
+            // Try with single() first, if it fails try without single() (in case multiple rows)
+            let { data: profile, error } = await supabase
+              .from('profiles')
+              .select('role, id, email')
+              .eq('id', user.id)
+              .maybeSingle()
+            
+            // If no profile found, try to get it without single()
+            if (error || !profile) {
+              const { data: profiles, error: profilesError } = await supabase
+                .from('profiles')
+                .select('role, id, email')
+                .eq('id', user.id)
+              
+              if (profiles && profiles.length > 0) {
+                profile = profiles[0]
+                error = null
+              } else {
+                error = profilesError || new Error('Profile not found')
+              }
+            }
+            
+            console.log('Admin check - User ID:', user.id)
+            console.log('Admin check - Profile data:', profile)
+            console.log('Admin check - Error:', error)
+            console.log('Admin check - Role value:', profile?.role)
+            
+            if (error) {
+              console.error('Failed to fetch profile for admin check:', error)
+              console.error('Error details:', JSON.stringify(error, null, 2))
+            }
+            
+            // Check if role is 'admin' (case-insensitive comparison) from profile table
+            const role = profile?.role?.toLowerCase?.() || profile?.role || ''
+            if (!error && profile && role === 'admin') {
+              console.log('Admin role confirmed')
+              setIsAdmin(true)
+            } else {
+              console.warn('Admin role check failed - role:', profile?.role, 'expected: admin')
+              console.warn('Profile exists:', !!profile, 'Error:', error?.message)
             }
           } else {
             setIsAdmin(true) // If admin not required, set to true to allow access

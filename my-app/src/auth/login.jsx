@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from "react-router-dom"
-import { authAPI } from '../utils/api'
 import { authSupabase } from '../utils/supabaseAPI'
+import supabase from '../utils/supabaseClient'
 
 export default function Login() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
@@ -20,7 +20,30 @@ export default function Login() {
       try {
         const user = await authSupabase.getCurrentUser()
         if (user) {
-          navigate('/dashboard', { replace: true })
+          // Check role in auth metadata first
+          const metaRole = user?.user_metadata?.role || user?.user_metadata?.role?.toLowerCase?.()
+          if (metaRole && String(metaRole).toLowerCase() === 'admin') {
+            navigate('/admin', { replace: true })
+            return
+          }
+          // determine if user is admin and redirect accordingly
+          try {
+            const { data: profile, error } = await supabase
+              .from('profiles')
+              .select('role')
+              .eq('id', user.id)
+              .maybeSingle()
+
+            const role = profile?.role?.toLowerCase?.() || profile?.role || ''
+            if (!error && role === 'admin') {
+              navigate('/admin', { replace: true })
+            } else {
+              navigate('/dashboard', { replace: true })
+            }
+          } catch (err) {
+            // fallback to dashboard
+            navigate('/dashboard', { replace: true })
+          }
         }
       } catch (err) {
         // User not authenticated, continue to login page
@@ -49,9 +72,31 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const response = await authAPI.login(email, password)
-      if (response.token) {
-        navigate('/dashboard')
+      // Use Supabase for login to avoid relying on backend
+      const res = await authSupabase.signIn(email, password)
+        const user = res?.user || res?.data?.user
+      if (user) {
+        // store user
+        try {
+          localStorage.setItem('user', JSON.stringify(user))
+        } catch (e) {}
+        // fetch role
+        const metaRole = user?.user_metadata?.role || user?.user_metadata?.role?.toLowerCase?.()
+        if (metaRole && String(metaRole).toLowerCase() === 'admin') {
+          navigate('/admin')
+          return
+        }
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle()
+        const role = profile?.role?.toLowerCase?.() || profile?.role || ''
+        if (!error && role === 'admin') {
+          navigate('/admin')
+        } else {
+          navigate('/dashboard')
+        }
       }
     } catch (err) {
       setError(err.message || (language === 'en' ? 'Login failed. Please check your credentials.' : 'Kwinjira byanze. Ongera ugerageze.'))

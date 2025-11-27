@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import Navbar from '../components/navbar'
+import AdminNavbar from '../components/AdminNavbar'
 import Footer from '../components/footer'
 import { authAPI, userAPI } from '../utils/api'
 import { authSupabase, claimsSupabase, itemsSupabase, notificationsSupabase } from '../utils/supabaseAPI'
 import supabase from '../utils/supabaseClient'
-import { sampleItems } from './Search'
+import { sampleItems } from './search'
 
 function Admin() {
   const [pendingClaims, setPendingClaims] = useState([])
@@ -60,61 +60,78 @@ function Admin() {
     loadAdminData()
   }, [])
 
-  // Fetch users from database
+  // Fetch all users from database on component mount and when users tab is active
   useEffect(() => {
     const fetchUsers = async () => {
-      if (activeTab === 'users') {
-        setLoadingUsers(true)
-        try {
-          const response = await userAPI.getAllUsers()
-          let users = []
-          if (Array.isArray(response)) {
-            users = response
-          } else if (response.users && Array.isArray(response.users)) {
-            users = response.users
-          } else if (response.data && Array.isArray(response.data)) {
-            users = response.data
-          }
-          
-          const currentUser = authAPI.getCurrentUser()
-          if (currentUser) {
-            const currentUserId = currentUser._id || currentUser.id
-            const userExists = users.some(u => {
-              const uid = u._id || u.id
-              return uid && (uid === currentUserId || uid.toString() === currentUserId?.toString())
-            })
-            if (!userExists) {
-              users = [currentUser, ...users]
-            }
-          }
-          
-          setAllUsers(users)
-        } catch (error) {
-          console.error('Error fetching users:', error)
-          const localUsers = JSON.parse(localStorage.getItem('users') || '[]')
-          const currentUser = authAPI.getCurrentUser()
-          if (currentUser) {
-            const currentUserId = currentUser._id || currentUser.id
-            const userExists = localUsers.some(u => (u._id || u.id) === currentUserId)
-            if (!userExists) {
-              setAllUsers([currentUser, ...localUsers])
-            } else {
-              setAllUsers(localUsers)
-            }
-          } else {
-            setAllUsers(localUsers)
-          }
-        } finally {
-          setLoadingUsers(false)
+      setLoadingUsers(true)
+      try {
+        console.log('Fetching all users from database...')
+        const response = await userAPI.getAllUsers()
+        let users = []
+        
+        if (Array.isArray(response)) {
+          users = response
+        } else if (response?.users && Array.isArray(response.users)) {
+          users = response.users
+        } else if (response?.data && Array.isArray(response.data)) {
+          users = response.data
         }
+        
+        console.log(`Fetched ${users.length} users from database`, users)
+        
+        // Ensure current user is included if not already in the list
+        const currentUser = authAPI.getCurrentUser()
+        if (currentUser) {
+          const currentUserId = currentUser._id || currentUser.id
+          const userExists = users.some(u => {
+            const uid = u._id || u.id
+            return uid && (String(uid) === String(currentUserId) || uid === currentUserId)
+          })
+          if (!userExists && currentUserId) {
+            // Add current user if not found
+            users = [{
+              id: currentUserId,
+              _id: currentUserId,
+              email: currentUser.email || '',
+              fullName: currentUser.fullName || currentUser.email || 'Current User',
+              phone: currentUser.phone || '',
+              role: null,
+              verified: true,
+              ...currentUser
+            }, ...users]
+          }
+        }
+        
+        // Sort by creation date (newest first)
+        users.sort((a, b) => {
+          const dateA = new Date(a.created_at || a.updated_at || 0)
+          const dateB = new Date(b.created_at || b.updated_at || 0)
+          return dateB - dateA
+        })
+        
+        setAllUsers(users)
+      } catch (error) {
+        console.error('Error fetching users:', error)
+        // Fallback to local storage if available
+        try {
+          const localUsers = JSON.parse(localStorage.getItem('users') || '[]')
+          setAllUsers(localUsers)
+        } catch (e) {
+          console.error('Failed to load local users:', e)
+          setAllUsers([])
+        }
+      } finally {
+        setLoadingUsers(false)
       }
     }
+    
+    // Fetch users on mount and when users tab becomes active
     fetchUsers()
   }, [activeTab])
 
   // Calculate statistics from real Supabase data + sample items
   const stats = useMemo(() => {
-    const totalUsers = allUsers.length || 1
+    const totalUsers = allUsers.length || 0
     const pendingClaimsCount = pendingClaims.length
     
     // Calculate commission from approved claims (platform fee is 1000 RWF per approved claim)
@@ -292,7 +309,7 @@ function Admin() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <Navbar />
+      <AdminNavbar />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-10">
         <div className="mb-4">
@@ -482,6 +499,9 @@ function Admin() {
                         {language === 'en' ? 'Role' : 'Urwego'}
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        {language === 'en' ? 'Verified' : 'Byemejwe'}
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         {language === 'en' ? 'Actions' : 'Ibyakozwe'}
                       </th>
                     </tr>
@@ -489,7 +509,7 @@ function Admin() {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {allUsers.length === 0 ? (
                       <tr>
-                        <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
+                        <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
                           {language === 'en' ? 'No users found' : 'Nta bakoresha babonetse'}
                         </td>
                       </tr>
@@ -523,6 +543,18 @@ function Admin() {
                                   : 'bg-gray-100 text-gray-800'
                               }`}>
                                 {user.role || 'user'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                user.verified || user.email_confirmed_at
+                                  ? 'bg-green-100 text-green-800' 
+                                  : 'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {user.verified || user.email_confirmed_at
+                                  ? (language === 'en' ? 'Verified' : 'Byemejwe')
+                                  : (language === 'en' ? 'Unverified' : 'Ntibyemejwe')
+                                }
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
