@@ -11,7 +11,6 @@ import Lost from './pages/lost'
 import Found from './pages/found'
 import Profile from './pages/profile'
 import Reports from './pages/reports'
-import Messages from './pages/messages'
 import Payment from './pages/payment'
 
 function App() {
@@ -28,7 +27,6 @@ function App() {
       <Route path="/report/found" element={<Found />} />
       <Route path="/profile" element={<Profile />} />
       <Route path="/reports" element={<Reports />} />
-      <Route path="/messages" element={<Messages />} />
       <Route path="/payment" element={<Payment />} />
     </Routes>
   )
