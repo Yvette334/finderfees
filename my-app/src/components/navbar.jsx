@@ -1,16 +1,30 @@
 import { useState, useMemo, useEffect, useRef } from "react"
 import { Link } from "react-router-dom"
 import { authAPI } from '../utils/api'
+import { authSupabase } from '../utils/supabaseAPI'
 
 function Navbar() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const dropdownRef = useRef(null)
 
   useEffect(() => {
     localStorage.setItem('language', language)
     window.dispatchEvent(new CustomEvent('languageChanged', { detail: language }))
   }, [language])
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await authSupabase.getCurrentUser()
+        setIsAuthenticated(!!user)
+      } catch (err) {
+        setIsAuthenticated(false)
+      }
+    }
+    checkAuth()
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -25,6 +39,11 @@ function Navbar() {
   const currentUser = authAPI.getCurrentUser()
   const userName = currentUser?.fullName || ''
   const userPhone = currentUser?.phone || ''
+
+  // Don't render navbar if not authenticated
+  if (!isAuthenticated) {
+    return null
+  }
 
   const claims = useMemo(() => ({
     approved: JSON.parse(localStorage.getItem('approvedClaims') || '[]'),

@@ -113,13 +113,19 @@ function Verify() {
                 return navigate('/auth/login')
               }
 
+              // Check if itemId is a valid UUID (sample items have IDs like "1", "2" which aren't UUIDs)
+              const isValidUUID = (str) => {
+                const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+                return str && uuidRegex.test(str)
+              }
+
               const payload = {
-                item_id: itemId || null,
-                itemName: itemName || 'Unknown Item',
+                item_id: (itemId && isValidUUID(itemId)) ? itemId : null,
+                item_name: itemName || 'Unknown Item',
                 owner_name: ownerName || '',
                 claimant_id: user.id,
-                claimantName: fullName,
-                claimantPhone: phone,
+                claimant_name: fullName,
+                claimant_phone: phone,
                 description,
                 photo: photo || location.state?.photo || ''
               }
@@ -129,7 +135,8 @@ function Verify() {
                 setSubmitted(true)
               } catch (err) {
                 console.error('Failed to create claim', err)
-                alert('Failed to submit claim')
+                const errorMsg = err?.message || (language === 'en' ? 'Failed to submit claim' : 'Gutanga icyifuzo byanze')
+                alert(errorMsg)
               }
             }}
             className="space-y-5"

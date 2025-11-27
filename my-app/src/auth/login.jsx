@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from "react-router-dom"
 import { authAPI } from '../utils/api'
+import { authSupabase } from '../utils/supabaseAPI'
 
 export default function Login() {
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
@@ -8,7 +9,25 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [resetEmailSent, setResetEmailSent] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
   const navigate = useNavigate()
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await authSupabase.getCurrentUser()
+        if (user) {
+          navigate('/dashboard', { replace: true })
+        }
+      } catch (err) {
+        // User not authenticated, continue to login page
+      }
+    }
+    checkAuth()
+  }, [navigate])
 
   useEffect(() => {
     const handleLanguageChange = (e) => {
@@ -38,6 +57,30 @@ export default function Login() {
       setError(err.message || (language === 'en' ? 'Login failed. Please check your credentials.' : 'Kwinjira byanze. Ongera ugerageze.'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault()
+    if (!email) {
+      setError(language === 'en' ? 'Please enter your email address' : 'Nyamuneka winjize imeyili yawe')
+      return
+    }
+
+    setResetLoading(true)
+    setError('')
+
+    try {
+      const { error } = await authSupabase.resetPassword(email)
+      if (error) {
+        setError(error.message || (language === 'en' ? 'Failed to send reset email' : 'Kohereza imeyili yongeyeho byanze'))
+      } else {
+        setResetEmailSent(true)
+      }
+    } catch (err) {
+      setError(err.message || (language === 'en' ? 'Failed to send reset email' : 'Kohereza imeyili yongeyeho byanze'))
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -89,28 +132,97 @@ export default function Login() {
                     />
                     </div>
                     <div>
-                        <label className="block text-sm font-semibold text-gray-900 mb-1">
-                          {language === 'en' ? 'Password' : 'Ijambobanga'}
-                        </label>
-                        <input 
-                          type="password" 
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          required 
-                          placeholder={language === 'en' ? 'Password' : 'Ijambobanga'} 
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" 
-                        />
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-sm font-semibold text-gray-900">
+                            {language === 'en' ? 'Password' : 'Ijambobanga'}
+                          </label>
+                          {!showForgotPassword && (
+                            <button
+                              type="button"
+                              onClick={() => setShowForgotPassword(true)}
+                              className="text-xs text-gray-600 hover:text-gray-900"
+                            >
+                              {language === 'en' ? 'Forgot password?' : 'Wibagiwe ijambobanga?'}
+                            </button>
+                          )}
+                        </div>
+                        {!showForgotPassword ? (
+                          <input 
+                            type="password" 
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required 
+                            placeholder={language === 'en' ? 'Password' : 'Ijambobanga'} 
+                            className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" 
+                          />
+                        ) : (
+                          <div className="space-y-4">
+                            {resetEmailSent ? (
+                              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                                <p className="text-sm text-green-800 mb-2">
+                                  {language === 'en' 
+                                    ? 'Password reset email sent! Check your inbox and follow the instructions to reset your password.'
+                                    : 'Ineyili yongeyeho ijambobanga yoherejwe! Reba mu inbox yawe ukurikire amabwiriza kugirango wongereho ijambobanga.'
+                                  }
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowForgotPassword(false)
+                                    setResetEmailSent(false)
+                                  }}
+                                  className="text-sm text-green-700 hover:text-green-900 underline"
+                                >
+                                  {language === 'en' ? 'Back to login' : 'Subira ku kwinjira'}
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <input 
+                                  type="email" 
+                                  value={email}
+                                  onChange={(e) => setEmail(e.target.value)}
+                                  placeholder={language === 'en' ? 'Enter your email' : 'Injiza imeyili yawe'} 
+                                  required 
+                                  className="w-full px-4 py-3 border border-gray-200 rounded-lg outline-none focus:border-gray-900 transition-colors" 
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowForgotPassword(false)}
+                                    className="flex-1 bg-gray-200 text-gray-900 py-2 px-4 rounded-lg font-medium hover:bg-gray-300 transition-colors text-sm"
+                                  >
+                                    {language === 'en' ? 'Cancel' : 'Kureka'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleForgotPassword}
+                                    disabled={resetLoading || !email}
+                                    className="flex-1 bg-black text-white py-2 px-4 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                                  >
+                                    {resetLoading 
+                                      ? (language === 'en' ? 'Sending...' : 'Kohereza...')
+                                      : (language === 'en' ? 'Send Reset Link' : 'Kohereza Ihuza')
+                                    }
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                     </div>
-                    <button 
-                      type="submit" 
-                      disabled={loading}
-                      className="w-full bg-black text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {loading 
-                        ? (language === 'en' ? 'Logging in...' : 'Kwinjira...')
-                        : (language === 'en' ? 'Login' : 'Injira')
-                      }
-                    </button>
+                    {!showForgotPassword && (
+                      <button 
+                        type="submit" 
+                        disabled={loading}
+                        className="w-full bg-black text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {loading 
+                          ? (language === 'en' ? 'Logging in...' : 'Kwinjira...')
+                          : (language === 'en' ? 'Login' : 'Injira')
+                        }
+                      </button>
+                    )}
                 </form>
             </div>
 

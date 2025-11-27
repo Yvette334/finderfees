@@ -3,13 +3,17 @@ import { Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
 import { authAPI, userAPI } from '../utils/api'
-import { claimsSupabase, itemsSupabase } from '../utils/supabaseAPI'
+import { authSupabase, claimsSupabase, itemsSupabase, notificationsSupabase } from '../utils/supabaseAPI'
+import supabase from '../utils/supabaseClient'
+import { sampleItems } from './Search'
 
 function Admin() {
   const [pendingClaims, setPendingClaims] = useState([])
   const [approvedClaims, setApprovedClaims] = useState([])
   const [rejectedClaims, setRejectedClaims] = useState([])
   const [allUsers, setAllUsers] = useState([])
+  const [allItems, setAllItems] = useState([])
+  const [allPayments, setAllPayments] = useState([])
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
@@ -24,31 +28,36 @@ function Admin() {
     return () => window.removeEventListener('languageChanged', handleLanguageChange)
   }, [])
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const pending = await claimsSupabase.getPendingClaims()
-        setPendingClaims(pending || [])
-        // Optionally load approved/rejected via query
-        const items = await itemsSupabase.getItems()
-        // compute some stats
-        const returned = (items || []).filter(i => i.status === 'returned')
-        // fallback to localStorage if supabase returns nothing
-        if ((pending || []).length === 0) {
-          const storedPending = JSON.parse(localStorage.getItem('pendingClaims') || '[]')
-          setPendingClaims(storedPending)
-        }
-      } catch (err) {
-        console.warn('Failed to load admin pending claims via Supabase', err)
-        const storedPending = JSON.parse(localStorage.getItem('pendingClaims') || '[]')
-        const storedApproved = JSON.parse(localStorage.getItem('approvedClaims') || '[]')
-        const storedRejected = JSON.parse(localStorage.getItem('rejectedClaims') || '[]')
-        setPendingClaims(storedPending)
-        setApprovedClaims(storedApproved)
-        setRejectedClaims(storedRejected)
-      }
+  const loadAdminData = async () => {
+    try {
+      const [pending, items, allClaims] = await Promise.all([
+        claimsSupabase.getPendingClaims(),
+        itemsSupabase.getItems(),
+        supabase.from('claims').select('*')
+      ])
+      
+      setPendingClaims(pending || [])
+      setAllItems(items || [])
+      
+      // Separate approved and rejected claims
+      const approved = (allClaims.data || []).filter(c => c.status === 'approved')
+      const rejected = (allClaims.data || []).filter(c => c.status === 'rejected')
+      setApprovedClaims(approved)
+      setRejectedClaims(rejected)
+    } catch (err) {
+      console.warn('Failed to load admin data via Supabase', err)
+      // Fallback to localStorage if Supabase fails
+      const storedPending = JSON.parse(localStorage.getItem('pendingClaims') || '[]')
+      const storedApproved = JSON.parse(localStorage.getItem('approvedClaims') || '[]')
+      const storedRejected = JSON.parse(localStorage.getItem('rejectedClaims') || '[]')
+      setPendingClaims(storedPending)
+      setApprovedClaims(storedApproved)
+      setRejectedClaims(storedRejected)
     }
-    load()
+  }
+
+  useEffect(() => {
+    loadAdminData()
   }, [])
 
   // Fetch users from database
@@ -103,20 +112,22 @@ function Admin() {
     fetchUsers()
   }, [activeTab])
 
-  // Calculate statistics
+  // Calculate statistics from real Supabase data + sample items
   const stats = useMemo(() => {
-    // Try to use precomputed environment or fallback to local storage
-    const allItems = JSON.parse(localStorage.getItem('reportedItems') || '[]')
-    const allPayments = JSON.parse(localStorage.getItem('payments') || '[]')
-    
     const totalUsers = allUsers.length || 1
     const pendingClaimsCount = pendingClaims.length
-    const totalCommission = allPayments.reduce((sum, p) => sum + (p.platformFee || 1000), 0)
     
-    const totalItems = allItems.length
-    const lostItems = allItems.filter(item => item.type === 'lost').length
-    const foundItems = allItems.filter(item => item.type === 'found').length
-    const returnedItems = allItems.filter(item => item.status === 'returned').length
+    // Calculate commission from approved claims (platform fee is 1000 RWF per approved claim)
+    const totalCommission = approvedClaims.length * 1000
+    
+    // Combine sample items with Supabase items
+    const allSampleItems = [...(sampleItems.lost || []), ...(sampleItems.found || [])]
+    const combinedItems = [...allItems, ...allSampleItems]
+    
+    const totalItems = combinedItems.length
+    const lostItems = combinedItems.filter(item => item.type === 'lost').length
+    const foundItems = combinedItems.filter(item => item.type === 'found').length
+    const returnedItems = combinedItems.filter(item => item.status === 'returned' || item.status === 'verified').length
     const activeItems = totalItems - returnedItems
     
     return {
@@ -129,7 +140,7 @@ function Admin() {
       returnedItems,
       activeItems
     }
-  }, [pendingClaims, allUsers])
+  }, [pendingClaims, allUsers, allItems, approvedClaims])
 
   const persist = (nextPending, nextApproved, nextRejected, nextVerifiedIds) => {
     localStorage.setItem('pendingClaims', JSON.stringify(nextPending))
@@ -140,26 +151,91 @@ function Admin() {
     }
   }
 
-  const handleApprove = (claimId) => {
+  const handleApprove = async (claimId) => {
     const claim = pendingClaims.find(c => c.id === claimId)
     if (!claim) return
-    const nextPending = pendingClaims.filter(c => c.id !== claimId)
-    const nextApproved = [{ ...claim, approvedAt: new Date().toISOString() }, ...approvedClaims]
-    const verifiedIds = new Set(JSON.parse(localStorage.getItem('verifiedItemIds') || '[]'))
-    verifiedIds.add(claim.itemId)
-    setPendingClaims(nextPending)
-    setApprovedClaims(nextApproved)
-    persist(nextPending, nextApproved, rejectedClaims, Array.from(verifiedIds))
+    
+    try {
+      const user = await authSupabase.getCurrentUser()
+      if (!user) {
+        alert(language === 'en' ? 'Please sign in to approve claims' : 'Nyamuneka winjire kugirango ukemure ibyifuzo')
+        return
+      }
+      
+      const reviewerId = user.id
+      
+      // Update claim in Supabase
+      const approvedClaim = await claimsSupabase.approveClaim(claimId, reviewerId)
+      
+      // Update item status - mark as verified and returned
+      if (claim.item_id) {
+        try {
+          await itemsSupabase.updateItem(claim.item_id, { 
+            status: 'returned',
+            verified: true
+          })
+        } catch (itemErr) {
+          console.warn('Failed to update item status', itemErr)
+        }
+      }
+      
+      // Create notification for the claimant
+      if (claim.claimant_id) {
+        try {
+          await notificationsSupabase.createNotification({
+            user_id: claim.claimant_id,
+            title: language === 'en' ? 'Claim Verified!' : 'Icyifuzo cyemejwe!',
+            body: language === 'en' 
+              ? `Your claim for "${claim.item_name || claim.itemName || 'item'}" has been approved by admin. The founder's contact is now visible.`
+              : `Icyifuzo cyawe cya "${claim.item_name || claim.itemName || 'ikintu'}" cyemejwe na admin. Kontaki y'umwubatsi iboneka.`,
+            notif_type: 'claim_approved',
+            data: {
+              claim_id: claimId,
+              item_id: claim.item_id,
+              item_name: claim.item_name || claim.itemName
+            }
+          })
+        } catch (notifErr) {
+          console.warn('Failed to create notification', notifErr)
+        }
+      }
+      
+      // Reload all data to get fresh state
+      await loadAdminData()
+      
+      alert(language === 'en' ? 'Claim approved successfully' : 'Icyifuzo cyakemuwe neza')
+    } catch (err) {
+      console.error('Failed to approve claim', err)
+      const errorMsg = err?.message || (language === 'en' ? 'Failed to approve claim' : 'Gukemura icyifuzo byanze')
+      alert(`${language === 'en' ? 'Error:' : 'Ikosa:'} ${errorMsg}`)
+    }
   }
 
-  const handleReject = (claimId) => {
+  const handleReject = async (claimId) => {
     const claim = pendingClaims.find(c => c.id === claimId)
     if (!claim) return
-    const nextPending = pendingClaims.filter(c => c.id !== claimId)
-    const nextRejected = [{ ...claim, rejectedAt: new Date().toISOString() }, ...rejectedClaims]
-    setPendingClaims(nextPending)
-    setRejectedClaims(nextRejected)
-    persist(nextPending, approvedClaims, nextRejected)
+    
+    try {
+      const user = await authSupabase.getCurrentUser()
+      if (!user) {
+        alert(language === 'en' ? 'Please sign in to reject claims' : 'Nyamuneka winjire kugirango wange ibyifuzo')
+        return
+      }
+      
+      const reviewerId = user.id
+      
+      // Update claim in Supabase
+      await claimsSupabase.rejectClaim(claimId, reviewerId)
+      
+      // Reload all data to get fresh state
+      await loadAdminData()
+      
+      alert(language === 'en' ? 'Claim rejected successfully' : 'Icyifuzo cyanjiwe neza')
+    } catch (err) {
+      console.error('Failed to reject claim', err)
+      const errorMsg = err?.message || (language === 'en' ? 'Failed to reject claim' : 'Kwanga icyifuzo byanze')
+      alert(`${language === 'en' ? 'Error:' : 'Ikosa:'} ${errorMsg}`)
+    }
   }
 
   const handleViewUser = async (userId) => {
@@ -220,9 +296,6 @@ function Admin() {
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-10">
         <div className="mb-4">
-          <Link to="/" className="text-sm text-gray-600 hover:text-gray-900">
-            ← {language === 'en' ? 'Back to Home' : 'Subira ku Nzu'}
-          </Link>
         </div>
         <h1 className="text-3xl font-bold text-gray-900 mb-6">
           {language === 'en' ? 'Admin Dashboard' : 'Dashboard ya Admin'}

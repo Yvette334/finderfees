@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
-import { itemsSupabase } from '../utils/supabaseAPI'
+import { itemsSupabase, authSupabase } from '../utils/supabaseAPI'
+import supabase from '../utils/supabaseClient'
 
 export const sampleItems = {
     lost: [
@@ -95,7 +96,7 @@ export const sampleItems = {
         itemName: 'Set of Car Keys',
         description: 'Found a set of Toyota car keys with a red keychain near UTC Kigali. Has remote and house keys attached.',
         category: 'Keys',
-        location: 'UTC Kigali',
+        location: 'Kigali',
         date: '2025-10-21',
         photo: 'https://images.unsplash.com/photo-1687075430355-ed8df51c1670?q=80&w=774&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
         userId: '7',
@@ -142,62 +143,166 @@ export default function search() {
     return () => window.removeEventListener('languageChanged', handleLanguageChange)
   }, [])
 
+  // Save language to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem('language', language)
+    window.dispatchEvent(new CustomEvent('languageChanged', { detail: language }))
+  }, [language])
+
   const verifiedSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('verifiedItemIds') || '[]')), [])
   const paidItemsSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('paidItems') || '[]')), [])
   const [apiItems, setApiItems] = useState([])
+  const [approvedClaims, setApprovedClaims] = useState([])
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   
-  // Get approved claims to find finder phone numbers
-  const approvedClaims = useMemo(() => {
-    return JSON.parse(localStorage.getItem('approvedClaims') || '[]')
+  // Check authentication status
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await authSupabase.getCurrentUser()
+        setIsAuthenticated(!!user)
+      } catch (err) {
+        setIsAuthenticated(false)
+      }
+    }
+    checkAuth()
   }, [])
+  
+  // Fetch approved claims from Supabase
+  useEffect(() => {
+    const fetchApprovedClaims = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('claims')
+          .select('*')
+          .eq('status', 'approved')
+        if (!error && data) {
+          setApprovedClaims(data)
+        } else {
+          // Fallback to localStorage
+          const local = JSON.parse(localStorage.getItem('approvedClaims') || '[]')
+          setApprovedClaims(local)
+        }
+      } catch (err) {
+        console.error('Failed to fetch approved claims', err)
+        // Fallback to localStorage
+        const local = JSON.parse(localStorage.getItem('approvedClaims') || '[]')
+        setApprovedClaims(local)
+      }
+    }
+    fetchApprovedClaims()
+  }, [])
+  
+  // Check if item is claimed
+  const isItemClaimed = (item) => {
+    if (!item) return false
+    // Check item status
+    if (item.status === 'returned' || item.status === 'verified') return true
+    // Check if there's an approved claim for this item
+    if (approvedClaims.some(c => c.item_id === item.id || c.itemId === item.id)) return true
+    // Check localStorage fallbacks
+    if (paidItemsSet.has(item.id)) return true
+    if (verifiedSet.has(item.id)) return true
+    return false
+  }
   
   // Get all found items to match with lost items (API + local)
   const foundItems = useMemo(() => {
-    const allLocal = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+    const safeId = () => {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+      return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    }
+    const allLocalRaw = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+    const normalize = (item = {}) => {
+      if (!item || typeof item !== 'object') {
+        return {
+          id: safeId(),
+          type: 'found',
+          itemName: '',
+          description: '',
+          category: 'Other',
+          location: '',
+          event_date: new Date().toISOString().slice(0, 10),
+          userName: '',
+          userPhone: '',
+          reward: null,
+          commission: null,
+          status: 'active',
+          photo: '',
+          createdAt: new Date().toISOString()
+        }
+      }
+      return {
+        id: item.id || item._id || safeId(),
+        type: item.type || 'found',
+        itemName: item.item_name || item.itemName || '',
+        description: item.description || '',
+        category: item.category || 'Other',
+        location: item.location || '',
+        event_date: item.event_date || item.date || new Date().toISOString().slice(0, 10),
+        userName: item.user_name || item.userName || '',
+        userPhone: item.user_phone || item.userPhone || '',
+        reward: item.reward ?? null,
+        commission: item.commission ?? null,
+        status: item.status || 'active',
+        photo: item.photo || '',
+        createdAt: item.created_at || item.createdAt || new Date().toISOString()
+      }
+    }
+    const allLocal = allLocalRaw.map(normalize)
     const fromLocalFound = allLocal.filter(item => item.type === 'found')
-    const fromApiFound = apiItems.filter(item => item.type === 'found')
+    const fromApiFound = apiItems.filter(item => item.type === 'found').map(normalize)
     return [...fromApiFound, ...fromLocalFound]
   }, [apiItems])
 
   // Get user-reported items from API + localStorage
   const reportedItems = useMemo(() => {
-    const allLocal = JSON.parse(localStorage.getItem('reportedItems') || '[]')
-    const apiNormalized = apiItems.map(item => ({
-      id: item.id || item._id,
-      type: item.type,
-      itemName: item.item_name || item.itemName,
-      description: item.description || '',
-      category: item.category || 'Other',
-      location: item.location || '',
-      date: item.date || item.created_at,
-      photo: item.photo || '',
-      userId: item.user_id || '',
-      userName: item.user_name || item.userName || 'Anonymous',
-      userPhone: item.user_phone || item.userPhone || '',
-      reward: item.reward || null,
-      commission: item.commission || null,
-      status: item.status || 'active',
-      createdAt: item.created_at || new Date().toISOString()
-    }))
-    const all = [...apiNormalized, ...allLocal]
-    // Normalize reported items to match sampleItems structure
-    return all.map(item => ({
-      id: item.id,
-      type: item.type,
-      itemName: item.itemName,
-      description: item.description || '',
-      category: item.category || 'Other',
-      location: item.location || '',
-      date: item.date || item.createdAt,
-      photo: item.photo || '',
-      userId: item.userId || '',
-      userName: item.userName || 'Anonymous',
-      userPhone: item.userPhone || '',
-      reward: item.reward || null,
-      commission: item.commission || null,
-      status: 'active',
-      createdAt: item.createdAt || new Date().toISOString()
-    }))
+    const safeId = () => {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+      return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    }
+    const allLocalRaw = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+    const normalize = (item = {}) => {
+      if (!item || typeof item !== 'object') {
+        return {
+          id: safeId(),
+          type: 'lost',
+          itemName: '',
+          description: '',
+          category: 'Other',
+          location: '',
+          date: new Date().toISOString(),
+          photo: '',
+          userId: '',
+          userName: 'Anonymous',
+          userPhone: '',
+          reward: null,
+          commission: null,
+          status: 'active',
+          createdAt: new Date().toISOString()
+        }
+      }
+      return {
+        id: item.id || item._id || safeId(),
+        type: item.type || 'lost',
+        itemName: item.item_name || item.itemName || '',
+        description: item.description || '',
+        category: item.category || 'Other',
+        location: item.location || '',
+        date: item.date || item.created_at || new Date().toISOString(),
+        photo: item.photo || '',
+        userId: item.user_id || '',
+        userName: item.user_name || item.userName || 'Anonymous',
+        userPhone: item.user_phone || item.userPhone || '',
+        reward: item.reward ?? null,
+        commission: item.commission ?? null,
+        status: item.status || 'active',
+        createdAt: item.created_at || item.createdAt || new Date().toISOString()
+      }
+    }
+    const apiNormalized = apiItems.map(normalize)
+    const all = [...apiNormalized, ...allLocalRaw.map(normalize)]
+    return all
   }, [apiItems])
 
   // Combine all items (sample + user-reported from API + local)
@@ -217,13 +322,23 @@ export default function search() {
 
   // Filter items based on search query, category, and type
   const filteredItems = allItems.filter(item => {
-    const matchesSearch = searchQuery === '' || 
-      item.itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.location.toLowerCase().includes(searchQuery.toLowerCase())
+    if (!item || typeof item !== 'object') {
+      return false
+    }
+    const itemNameLower = typeof item.itemName === 'string' ? item.itemName.toLowerCase() : ''
+    const descriptionLower = typeof item.description === 'string' ? item.description.toLowerCase() : ''
+    const locationLower = typeof item.location === 'string' ? item.location.toLowerCase() : ''
+    const categoryLower = typeof item.category === 'string' ? item.category.toLowerCase() : ''
+    const searchLower = typeof searchQuery === 'string' ? searchQuery.toLowerCase() : ''
+    const selectedCategoryLower = typeof selectedCategory === 'string' ? selectedCategory.toLowerCase() : ''
+
+    const matchesSearch = searchQuery === '' ||
+      itemNameLower.includes(searchLower) ||
+      descriptionLower.includes(searchLower) ||
+      locationLower.includes(searchLower)
     
-    const matchesCategory = selectedCategory === '' || 
-      item.category.toLowerCase() === selectedCategory.toLowerCase()
+    const matchesCategory = selectedCategory === '' ||
+      categoryLower === selectedCategoryLower
     
     const matchesType = itemType === 'all' || item.type === itemType
 
@@ -232,13 +347,48 @@ export default function search() {
 
   return (
     <div className="min-h-screen bg-white">
-      <Navbar/>
+      {isAuthenticated ? (
+        <Navbar/>
+      ) : (
+        <header className="bg-white border-b border-gray-200">
+          <nav className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <Link to="/" className="flex items-center gap-2">
+              <span className="text-xl">🔍</span>
+              <h1 className="text-lg font-semibold text-gray-900">Finders Fee</h1>
+            </Link>
+            <div className="flex items-center gap-3">
+              <Link 
+                to="/login"
+                className="text-sm text-gray-600 hover:text-gray-900"
+              >
+                {language === 'en' ? 'Login' : 'Injira'}
+              </Link>
+              <Link 
+                to="/register"
+                className="text-sm bg-gray-900 text-white px-3 py-2 rounded-lg hover:opacity-90 transition-opacity"
+              >
+                {language === 'en' ? 'Register' : 'Kwiyandikisha'}
+              </Link>
+              <select 
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer outline-none"
+              >
+                <option value="en">English</option>
+                <option value="rw">Kinyarwanda</option>
+              </select>
+            </div>
+          </nav>
+        </header>
+      )}
       <div className="max-w-7xl mx-auto px-4 py-12">
-        <div className="mb-4">
-          <Link to="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
-            ← {language === 'en' ? 'Back to Dashboard' : 'Subira ku Dashboard'}
-          </Link>
-        </div>
+        {isAuthenticated && (
+          <div className="mb-4">
+            <Link to="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
+              ← {language === 'en' ? 'Back to Dashboard' : 'Subira ku Dashboard'}
+            </Link>
+          </div>
+        )}
         <h1 className="text-4xl font-bold text-gray-900 mb-8 text-center">
           {language === 'en' ? 'Search Items' : 'Shakisha Ibintu'}
         </h1>
@@ -329,10 +479,7 @@ export default function search() {
                           ? (paidItemsSet.has(item.id) 
                               ? (() => {
                                   const claim = approvedClaims.find(c => c.itemId === item.id)
-                                  const foundItem = [...sampleItems.found, ...foundItems].find(
-                                    fi => fi.itemName.toLowerCase() === item.itemName.toLowerCase()
-                                  )
-                                  return foundItem?.userPhone || claim?.phone || ''
+                                  return claim?.phone || item.userPhone || ''
                                 })()
                               : verifiedSet.has(item.id)
                                 ? item.userPhone
@@ -359,15 +506,26 @@ export default function search() {
                       </div>
                     )}
                   </div>
-                  {item.type === 'lost' && (
+                  {isItemClaimed(item) ? (
+                    <div className="w-full bg-gray-200 text-gray-600 py-2 px-4 rounded-lg font-medium text-sm text-center">
+                      {language === 'en' ? 'Already Claimed' : 'Byakemuwe'}
+                    </div>
+                  ) : isAuthenticated ? (
                     <button
                       onClick={() => {
-                        navigate('/verify', { state: { itemId: item.id, itemName: item.itemName, ownerName: item.userName, photo: item.photo } })
+                        navigate('/verify', { state: { itemId: item.id, itemName: item.itemName, ownerName: item.userName, photo: item.photo, type: item.type } })
                       }}
                       className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg font-medium transition-colors text-sm"
                     >
                       {language === 'en' ? 'Claim This Item' : 'Fata Iki Kintu'}
                     </button>
+                  ) : (
+                    <Link
+                      to="/login"
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg font-medium transition-colors text-sm text-center block"
+                    >
+                      {language === 'en' ? 'Login to Claim' : 'Injira Kugirango Ufate'}
+                    </Link>
                   )}
                 </div>
               </div>

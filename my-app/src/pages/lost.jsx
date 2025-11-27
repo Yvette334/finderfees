@@ -69,7 +69,6 @@ function Lost() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    // Ensure user is authenticated in Supabase
     const user = await authSupabase.getCurrentUser()
     if (!user) {
       alert('Please sign in to report an item')

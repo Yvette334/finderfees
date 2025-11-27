@@ -3,7 +3,8 @@ import { useNavigate, Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
 import { authAPI, statisticsAPI } from '../utils/api'
-import { authSupabase, itemsSupabase, claimsSupabase } from '../utils/supabaseAPI'
+import { authSupabase, itemsSupabase, claimsSupabase, notificationsSupabase } from '../utils/supabaseAPI'
+import supabase from '../utils/supabaseClient'
 
 function Dashboard() {
   const navigate = useNavigate()
@@ -17,6 +18,7 @@ function Dashboard() {
       try {
         const u = await authSupabase.getCurrentUser()
         if (u) {
+          setCurrentUserId(u.id)
           setUserName(u.user_metadata?.fullName || u.email || '')
           setUserPhone(u.user_metadata?.phone || '')
           // load user's items and claims
@@ -41,6 +43,11 @@ function Dashboard() {
   }, [])
 
   const [reportedItems, setReportedItems] = useState([])
+  const [currentUserId, setCurrentUserId] = useState(cachedUser?.id || null)
+  const [notifications, setNotifications] = useState([])
+  const [approvedClaims, setApprovedClaims] = useState([])
+  const verifiedSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('verifiedItemIds') || '[]')), [])
+  const paidItemsSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('paidItems') || '[]')), [])
   const [myStats, setMyStats] = useState({
     totalEarnings: 0,
     pendingClaims: 0,
@@ -49,30 +56,113 @@ function Dashboard() {
     totalItems: 0
   })
   const [myClaims, setMyClaims] = useState([])
+  
+  // Fetch notifications and approved claims
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        const user = await authSupabase.getCurrentUser()
+        if (user) {
+          const notifs = await notificationsSupabase.getNotifications(user.id)
+          setNotifications(notifs || [])
+          
+          // Also fetch approved claims to check item status
+          const { data: claimsData } = await supabase
+            .from('claims')
+            .select('*')
+            .eq('status', 'approved')
+          setApprovedClaims(claimsData || [])
+        }
+      } catch (err) {
+        console.error('Failed to fetch notifications', err)
+      }
+    }
+    fetchNotifications()
+  }, [])
+  
+  const isItemClaimed = (item) => {
+    if (!item) return false
+    if (typeof item.status === 'string' && (item.status.toLowerCase() === 'returned' || item.status.toLowerCase() === 'verified')) return true
+    if (approvedClaims.some(c => c.item_id === item.id || c.itemId === item.id)) return true
+    if (paidItemsSet.has(item.id)) return true
+    if (verifiedSet.has(item.id)) return true
+    return false
+  }
+
+  const handleDeleteItem = async (itemId) => {
+    if (!window.confirm(language === 'en'
+      ? 'Delete this item? This cannot be undone.'
+      : 'Ushaka gusiba iki kintu? Ntibishobora gusubizwa.')) {
+      return
+    }
+
+    try {
+      await itemsSupabase.deleteItem(itemId)
+      setReportedItems(prev => prev.filter(item => item.id !== itemId))
+      const stored = JSON.parse(localStorage.getItem('reportedItems') || '[]')
+        .filter(item => (item.id || item._id) !== itemId)
+      localStorage.setItem('reportedItems', JSON.stringify(stored))
+    } catch (error) {
+      console.error('Delete item failed', error)
+      alert(language === 'en' ? 'Failed to delete item' : 'Gusiba ikintu byanze')
+    }
+  }
   const filterMine = (list) => list || []
   const myPending = myClaims.filter(c => c.status === 'pending')
   const myApproved = myClaims.filter(c => c.status === 'approved')
   const myRejected = myClaims.filter(c => c.status === 'rejected')
 
   const [showNotification, setShowNotification] = useState(false)
-  const [latestApproved, setLatestApproved] = useState(null)
+  const [latestNotification, setLatestNotification] = useState(null)
 
   useEffect(() => {
-    const viewedIds = JSON.parse(localStorage.getItem('viewedNotifications') || '[]')
-    const newApproved = myApproved.find(claim => !viewedIds.includes(claim.id))
-    
-    if (newApproved) {
-      setLatestApproved(newApproved)
+    // Check for unread notifications from Supabase
+    const unreadNotifs = notifications.filter(n => !n.read_at)
+    if (unreadNotifs.length > 0) {
+      const latest = unreadNotifs[0]
+      setLatestNotification(latest)
       setShowNotification(true)
-    }
-  }, [myApproved])
-
-  const dismissNotification = () => {
-    if (latestApproved) {
+    } else {
+      // Fallback to approved claims check
       const viewedIds = JSON.parse(localStorage.getItem('viewedNotifications') || '[]')
-      if (!viewedIds.includes(latestApproved.id)) {
-        viewedIds.push(latestApproved.id)
-        localStorage.setItem('viewedNotifications', JSON.stringify(viewedIds))
+      const newApproved = myApproved.find(claim => !viewedIds.includes(claim.id))
+      
+      if (newApproved) {
+        setLatestNotification({
+          title: language === 'en' ? 'Claim Verified!' : 'Icyifuzo cyemejwe!',
+          body: language === 'en' 
+            ? `Your claim for "${newApproved.item_name || newApproved.itemName}" has been approved by admin.`
+            : `Icyifuzo cyawe cya "${newApproved.item_name || newApproved.itemName}" cyemejwe na admin.`,
+          notif_type: 'claim_approved',
+          data: { claimId: newApproved.id, itemName: newApproved.item_name || newApproved.itemName }
+        })
+        setShowNotification(true)
+      }
+    }
+  }, [notifications, myApproved, language])
+
+  const dismissNotification = async () => {
+    if (latestNotification) {
+      // Mark notification as read in Supabase if it has an id
+      if (latestNotification.id) {
+        try {
+          await notificationsSupabase.markAsRead(latestNotification.id)
+          // Reload notifications
+          const user = await authSupabase.getCurrentUser()
+          if (user) {
+            const notifs = await notificationsSupabase.getNotifications(user.id)
+            setNotifications(notifs || [])
+          }
+        } catch (err) {
+          console.error('Failed to mark notification as read', err)
+        }
+      } else {
+        // Fallback for legacy approved claims
+        const viewedIds = JSON.parse(localStorage.getItem('viewedNotifications') || '[]')
+        if (latestNotification.data?.claimId && !viewedIds.includes(latestNotification.data.claimId)) {
+          viewedIds.push(latestNotification.data.claimId)
+          localStorage.setItem('viewedNotifications', JSON.stringify(viewedIds))
+        }
       }
     }
     setShowNotification(false)
@@ -90,46 +180,71 @@ function Dashboard() {
     <div className="min-h-screen flex flex-col bg-white">
       <Navbar />
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-10">
-        {showNotification && latestApproved && (
-          <div className="mb-6 bg-green-50 border-l-4 border-green-500 p-4 rounded-lg flex items-center justify-between">
+        {showNotification && latestNotification && (
+          <div className={`mb-6 border-l-4 p-4 rounded-lg flex items-center justify-between ${
+            latestNotification.notif_type === 'claim_approved' 
+              ? 'bg-green-50 border-green-500' 
+              : latestNotification.notif_type === 'claim_rejected'
+              ? 'bg-red-50 border-red-500'
+              : 'bg-blue-50 border-blue-500'
+          }`}>
             <div className="flex items-center gap-3">
-              <div className="text-green-600">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+              <div className={latestNotification.notif_type === 'claim_approved' ? 'text-green-600' : latestNotification.notif_type === 'claim_rejected' ? 'text-red-600' : 'text-blue-600'}>
+                {latestNotification.notif_type === 'claim_approved' ? (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : latestNotification.notif_type === 'claim_rejected' ? (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
               </div>
               <div>
-                <p className="font-semibold text-green-900">{language === 'en' ? 'Claim Verified!' : 'Icyifuzo cyemejwe!'}</p>
-                <p className="text-sm text-green-700">
-                  {language === 'en' 
-                    ? `Your claim for "${latestApproved.itemName}" has been approved by admin. The founder's contact is now visible.`
-                    : `Icyifuzo cyawe cya "${latestApproved.itemName}" cyemejwe na admin. Kontaki y'umwubatsi iboneka.`
-                  }
-                </p>
-                <div className="flex gap-2 mt-2">
-                  <Link
-                    to="/payment"
-                    state={{
-                      claimId: latestApproved.id,
-                      itemName: latestApproved.itemName,
-                      ownerName: latestApproved.ownerName
-                    }}
-                    className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded font-medium transition-colors"
-                  >
-                    {language === 'en' ? 'Pay Now' : 'Kwishyura None'}
-                  </Link>
-                  <Link
-                    to="/messages"
-                    className="text-xs bg-white hover:bg-gray-100 text-green-700 border border-green-600 px-3 py-1 rounded font-medium transition-colors"
-                  >
-                    {language === 'en' ? 'Contact Founder' : 'Koresha Umwubatsi'}
-                  </Link>
-                </div>
+                <p className={`font-semibold ${
+                  latestNotification.notif_type === 'claim_approved' ? 'text-green-900' : 
+                  latestNotification.notif_type === 'claim_rejected' ? 'text-red-900' : 
+                  'text-blue-900'
+                }`}>{latestNotification.title}</p>
+                <p className={`text-sm ${
+                  latestNotification.notif_type === 'claim_approved' ? 'text-green-700' : 
+                  latestNotification.notif_type === 'claim_rejected' ? 'text-red-700' : 
+                  'text-blue-700'
+                }`}>{latestNotification.body}</p>
+                {latestNotification.notif_type === 'claim_approved' && latestNotification.data && (
+                  <div className="flex gap-2 mt-2">
+                    <Link
+                      to="/payment"
+                      state={{
+                        claimId: latestNotification.data.claim_id || latestNotification.data.claimId,
+                        itemName: latestNotification.data.item_name || latestNotification.data.itemName,
+                        ownerName: latestNotification.data.ownerName
+                      }}
+                      className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded font-medium transition-colors"
+                    >
+                      {language === 'en' ? 'Pay Now' : 'Kwishyura None'}
+                    </Link>
+                    <Link
+                      to="/search"
+                      className="text-xs bg-white hover:bg-gray-100 text-green-700 border border-green-600 px-3 py-1 rounded font-medium transition-colors"
+                    >
+                      {language === 'en' ? 'View Item' : 'Reba Ikintu'}
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
             <button
               onClick={dismissNotification}
-              className="text-green-700 hover:text-green-900 font-medium text-sm"
+              className={`font-medium text-sm ${
+                latestNotification.notif_type === 'claim_approved' ? 'text-green-700 hover:text-green-900' : 
+                latestNotification.notif_type === 'claim_rejected' ? 'text-red-700 hover:text-red-900' : 
+                'text-blue-700 hover:text-blue-900'
+              }`}
             >
               {language === 'en' ? 'Dismiss' : 'Guhagarika'}
             </button>
@@ -228,7 +343,10 @@ function Dashboard() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {recentItems.map(item => (
+              {recentItems.map(item => {
+                const claimed = isItemClaimed(item)
+                const canDelete = currentUserId && (item.user_id === currentUserId || item.userId === currentUserId)
+                return (
                 <div key={item.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                   {item.photo ? (
                     <img 
@@ -253,6 +371,24 @@ function Dashboard() {
                           : (language === 'en' ? 'Found' : 'Byabonetse')
                         }
                       </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                          claimed ? 'bg-gray-200 text-gray-700' : 'bg-green-100 text-green-700'
+                        }`}>
+                          {claimed
+                            ? (language === 'en' ? 'Claimed' : 'Cyamaze gufatwa')
+                            : (language === 'en' ? 'Available' : 'Kiraboneka')}
+                        </span>
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteItem(item.id)}
+                            className="text-xs text-red-600 hover:text-red-800 font-medium"
+                          >
+                            {language === 'en' ? 'Delete' : 'Siba'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">{item.itemName}</h3>
                     <p className="text-sm text-gray-600 mb-3 line-clamp-2">{item.description}</p>
@@ -267,19 +403,23 @@ function Dashboard() {
                         </p>
                       </div>
                     )}
-                    {item.type === 'lost' && (
+                    {!claimed ? (
                       <button
                         onClick={() => {
-                          navigate('/verify', { state: { itemId: item.id, itemName: item.itemName, ownerName: item.userName, photo: item.photo } })
+                          navigate('/verify', { state: { itemId: item.id, itemName: item.itemName, ownerName: item.userName, photo: item.photo, itemType: item.type } })
                         }}
                         className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-lg font-medium transition-colors text-sm mt-3"
                       >
                         {language === 'en' ? 'Claim This Item' : 'Fata Iki Kintu'}
                       </button>
+                    ) : (
+                      <div className="w-full text-center text-sm text-gray-600 border border-gray-200 rounded-lg py-2 mt-3">
+                        {language === 'en' ? 'Already claimed' : 'Cyamaze gufatwa'}
+                      </div>
                     )}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </section>

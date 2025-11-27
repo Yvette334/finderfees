@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authAPI } from '../utils/api'
+import { authSupabase } from '../utils/supabaseAPI'
 
 function register() {
   const navigate = useNavigate()
@@ -12,6 +13,21 @@ function register() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [phoneError, setPhoneError] = useState('')
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await authSupabase.getCurrentUser()
+        if (user) {
+          navigate('/dashboard', { replace: true })
+        }
+      } catch (err) {
+        // User not authenticated, continue to register page
+      }
+    }
+    checkAuth()
+  }, [navigate])
 
   // Listen for language changes
   useEffect(() => {
@@ -67,8 +83,8 @@ function register() {
         phone,
         language
       })
-      alert(language === 'en' ? 'Registration successful! Redirecting...' : 'Kwiyandikisha byagenze neza! Dukurikira...')
-      navigate('/dashboard')
+      alert(language === 'en' ? 'Registration successful! Please login to continue.' : 'Kwiyandikisha byagenze neza! Nyamuneka winjire kugirango ukomeze.')
+      navigate('/login')
     } catch (err) {
       // Supabase error objects may be Error or contain message
       const message = err?.message || (err?.error && err.error.message) || (language === 'en' ? 'Registration failed' : 'Kwiyandikisha byanze')

@@ -32,6 +32,20 @@ export const authSupabase = {
     if (error) throw error
     return data
   },
+  resetPassword: async (email) => {
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`
+    })
+    if (error) throw error
+    return { data, error }
+  },
+  updatePassword: async (newPassword) => {
+    const { data, error } = await supabase.auth.updateUser({
+      password: newPassword
+    })
+    if (error) throw error
+    return { data, error }
+  },
   onAuthStateChange: (cb) => supabase.auth.onAuthStateChange(cb)
 }
 
@@ -113,12 +127,44 @@ export const claimsSupabase = {
     return data
   },
   approveClaim: async (claimId, reviewedBy) => {
-    const { data, error } = await supabase.from('claims').update({ status: 'approved', reviewed_by: reviewedBy, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', claimId).select()
+    const { data, error } = await supabase.from('claims').update({ status: 'approved', reviewer_id: reviewedBy, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', claimId).select()
     if (error) throw error
     return data[0]
   },
   rejectClaim: async (claimId, reviewedBy) => {
-    const { data, error } = await supabase.from('claims').update({ status: 'rejected', reviewed_by: reviewedBy, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', claimId).select()
+    const { data, error } = await supabase.from('claims').update({ status: 'rejected', reviewer_id: reviewedBy, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', claimId).select()
+    if (error) throw error
+    return data[0]
+  }
+}
+
+// Notifications table functions
+export const notificationsSupabase = {
+  createNotification: async (notification) => {
+    const { data, error } = await supabase.from('notifications').insert({
+      user_id: notification.user_id,
+      title: notification.title,
+      body: notification.body,
+      notif_type: notification.notif_type || 'general',
+      data: notification.data || {},
+      created_at: new Date().toISOString()
+    }).select()
+    if (error) throw error
+    return data[0]
+  },
+  getNotifications: async (userId) => {
+    const { data, error } = await supabase.from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return data || []
+  },
+  markAsRead: async (notificationId) => {
+    const { data, error } = await supabase.from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('id', notificationId)
+      .select()
     if (error) throw error
     return data[0]
   }
@@ -127,5 +173,6 @@ export const claimsSupabase = {
 export default {
   authSupabase,
   itemsSupabase,
-  claimsSupabase
+  claimsSupabase,
+  notificationsSupabase
 }
