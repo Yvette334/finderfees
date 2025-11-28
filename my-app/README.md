@@ -121,6 +121,13 @@ To create an admin user, you can either:
 - Update a user's role in the `profiles` table to 'admin' in Supabase dashboard
 - Use SQL: `UPDATE profiles SET role = 'admin' WHERE email = 'your-email@example.com';`
 
+### 7. Admin Login Credentials for the deployed 
+
+**Admin Email:** `y.muhoracye@alustudent.com`  
+**Admin Password:** `yvette12345`
+
+> **Note:** Make sure the admin user exists in your Supabase database and has the role set to 'admin' in the `profiles` table. If you need to change these credentials, update them in Supabase Auth and set the role accordingly.
+
 ## 🏃 Running the Project
 
 ### Development Mode
