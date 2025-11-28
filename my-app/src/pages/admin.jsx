@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import AdminNavbar from '../components/AdminNavbar'
 import Footer from '../components/footer'
-import { authAPI, userAPI } from '../utils/api'
 import { authSupabase, claimsSupabase, itemsSupabase, notificationsSupabase } from '../utils/supabaseAPI'
 import supabase from '../utils/supabaseClient'
 import { sampleItems } from './Search'
@@ -12,10 +11,18 @@ function Admin() {
   const [pendingClaims, setPendingClaims] = useState([])
   const [approvedClaims, setApprovedClaims] = useState([])
   const [rejectedClaims, setRejectedClaims] = useState([])
-  const [allUsers, setAllUsers] = useState([])
   const [allItems, setAllItems] = useState([])
   const [allPayments, setAllPayments] = useState([])
-  const [loadingUsers, setLoadingUsers] = useState(false)
+  const [loadingItems, setLoadingItems] = useState(false)
+  const [totalUsersCount, setTotalUsersCount] = useState(0)
+  const [deletedSampleItems, setDeletedSampleItems] = useState(() => {
+    // Load deleted sample items from localStorage
+    try {
+      return JSON.parse(localStorage.getItem('deletedSampleItems') || '[]')
+    } catch {
+      return []
+    }
+  })
   const [activeTab, setActiveTab] = useState('overview')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
 
@@ -61,78 +68,28 @@ function Admin() {
     loadAdminData()
   }, [])
 
-  // Fetch all users from database on component mount and when users tab is active
+  // Fetch all items when items tab is active
   useEffect(() => {
-    const fetchUsers = async () => {
-      setLoadingUsers(true)
+    if (activeTab === 'items') {
+      const fetchItems = async () => {
+        setLoadingItems(true)
         try {
-          console.log('Fetching all users from database...')
-        const response = await userAPI.getAllUsers()
-        let users = []
-        
-        if (Array.isArray(response)) {
-          users = response
-        } else if (response?.users && Array.isArray(response.users)) {
-          users = response.users
-        } else if (response?.data && Array.isArray(response.data)) {
-          users = response.data
+          const items = await itemsSupabase.getItems()
+          setAllItems(items || [])
+        } catch (error) {
+          console.error('Error fetching items:', error)
+          setAllItems([])
+        } finally {
+          setLoadingItems(false)
         }
-        
-        console.log(`Fetched ${users.length} users from database`, users)
-        
-        // Ensure current user is included if not already in the list
-        const currentUser = authAPI.getCurrentUser()
-        if (currentUser) {
-          const currentUserId = currentUser._id || currentUser.id
-          const userExists = users.some(u => {
-            const uid = u._id || u.id
-            return uid && (String(uid) === String(currentUserId) || uid === currentUserId)
-          })
-          if (!userExists && currentUserId) {
-            // Add current user if not found
-            users = [{
-              id: currentUserId,
-              _id: currentUserId,
-              email: currentUser.email || '',
-              fullName: currentUser.fullName || currentUser.email || 'Current User',
-              phone: currentUser.phone || '',
-              role: null,
-              verified: true,
-              ...currentUser
-            }, ...users]
-          }
-        }
-        
-        // Sort by creation date (newest first)
-        users.sort((a, b) => {
-          const dateA = new Date(a.created_at || a.updated_at || 0)
-          const dateB = new Date(b.created_at || b.updated_at || 0)
-          return dateB - dateA
-        })
-        
-        setAllUsers(users)
-      } catch (error) {
-        console.error('Error fetching users:', error)
-        // Fallback to local storage if available
-        try {
-          const localUsers = JSON.parse(localStorage.getItem('users') || '[]')
-          setAllUsers(localUsers)
-        } catch (e) {
-          console.error('Failed to load local users:', e)
-          setAllUsers([])
-        }
-      } finally {
-        setLoadingUsers(false)
       }
+      fetchItems()
     }
-    
-    // Fetch users on mount and when users tab becomes active
-    fetchUsers()
   }, [activeTab])
 
   // Calculate statistics from real Supabase data + sample items
   const stats = useMemo(() => {
-    const totalUsers = allUsers.length || 0
+    const totalUsers = totalUsersCount
     const pendingClaimsCount = pendingClaims.length
     
     // Calculate commission from approved claims (platform fee is 1000 RWF per approved claim)
@@ -194,7 +151,7 @@ function Admin() {
       returnedItems,
       activeItems
     }
-  }, [pendingClaims, allUsers, allItems, approvedClaims])
+    }, [pendingClaims, allItems, approvedClaims, totalUsersCount])
 
   const persist = (nextPending, nextApproved, nextRejected, nextVerifiedIds) => {
     localStorage.setItem('pendingClaims', JSON.stringify(nextPending))
@@ -292,55 +249,38 @@ function Admin() {
     }
   }
 
-  const handleViewUser = async (userId) => {
-    try {
-      const response = await userAPI.getUserById(userId)
-      let user = null
-      if (response.user) {
-        user = response.user
-      } else if (response.data) {
-        user = response.data
-      } else if (response._id || response.id) {
-        user = response
-      } else {
-        user = allUsers.find(u => (u._id || u.id) === userId)
-      }
-      
-      if (user) {
-        alert(`${language === 'en' ? 'User:' : 'Umukoresha:'} ${user.fullName}\n${language === 'en' ? 'Email:' : 'Imeyili:'} ${user.email}\n${language === 'en' ? 'Phone:' : 'Telefoni:'} ${user.phone || 'N/A'}`)
-      } else {
-        alert(language === 'en' ? 'User not found' : 'Umukoresha ntabwo aboneka')
-      }
-    } catch (error) {
-      console.error('Error fetching user:', error)
-      const localUser = allUsers.find(u => (u._id || u.id) === userId)
-      if (localUser) {
-        alert(`${language === 'en' ? 'User:' : 'Umukoresha:'} ${localUser.fullName}\n${language === 'en' ? 'Email:' : 'Imeyili:'} ${localUser.email}\n${language === 'en' ? 'Phone:' : 'Telefoni:'} ${localUser.phone || 'N/A'}`)
-      } else {
-        alert(language === 'en' ? 'Failed to load user details' : 'Kugenzura amakuru y\'umukoresha byanze')
-      }
-    }
-  }
-
-  const handleDeleteUser = async (userId) => {
+  const handleDeleteItem = async (itemId) => {
     const confirmMessage = language === 'en' 
-      ? 'Are you sure you want to delete this user? This action cannot be undone.'
-      : 'Urabyemera ko ushaka gusiba uyu mukoresha? Iki gikorwa ntigishobora guhindurwa.'
+      ? 'Are you sure you want to delete this item? This action cannot be undone.'
+      : 'Urabyemera ko ushaka gusiba iki kintu? Iki gikorwa ntigishobora guhindurwa.'
     
     if (!window.confirm(confirmMessage)) {
       return
     }
 
     try {
-      await userAPI.deleteUser(userId)
-      setAllUsers(allUsers.filter(user => {
-        const uid = user._id || user.id
-        return uid && uid.toString() !== userId.toString()
-      }))
-      alert(language === 'en' ? 'User deleted successfully' : 'Umukoresha yasibwe neza')
+      // Check if it's a sample item (string ID like '1', '2', etc.)
+      const isSampleItem = typeof itemId === 'string' && !itemId.includes('-')
+      
+      if (isSampleItem) {
+        // For sample items, mark as deleted in localStorage
+        const newDeleted = [...deletedSampleItems, itemId]
+        setDeletedSampleItems(newDeleted)
+        localStorage.setItem('deletedSampleItems', JSON.stringify(newDeleted))
+        // Refresh items list
+        const items = await itemsSupabase.getItems()
+        setAllItems(items || [])
+        alert(language === 'en' ? 'Item removed successfully' : 'Ikintu cyasibwe neza')
+      } else {
+        // For database items, delete from Supabase
+        await itemsSupabase.deleteItem(itemId)
+        const items = await itemsSupabase.getItems()
+        setAllItems(items || [])
+        alert(language === 'en' ? 'Item deleted successfully' : 'Ikintu cyasibwe neza')
+      }
     } catch (error) {
-      console.error('Error deleting user:', error)
-      alert(language === 'en' ? 'Failed to delete user' : 'Gusiba umukoresha byanze')
+      console.error('Error deleting item:', error)
+      alert(language === 'en' ? 'Failed to delete item' : 'Gusiba ikintu byanze')
     }
   }
 
@@ -384,14 +324,14 @@ function Admin() {
               )}
             </button>
             <button
-              onClick={() => setActiveTab('users')}
+              onClick={() => setActiveTab('items')}
               className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'users'
+                activeTab === 'items'
                   ? 'border-gray-900 text-gray-900'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              {language === 'en' ? 'Manage Users' : 'Gucunga Abakoresha'}
+              {language === 'en' ? 'Manage Items' : 'Gucunga Ibintu'}
             </button>
           </nav>
         </div>
@@ -499,152 +439,143 @@ function Admin() {
           </section>
         )}
 
-        {/* Manage Users Tab */}
-        {activeTab === 'users' && (
-          <section className="mb-10">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">
-                {language === 'en' ? 'All Users' : 'Abakoresha Byose'}
-              </h2>
-                  <div className="flex items-center gap-3">
-                  <span className="text-sm text-gray-500">
-                {allUsers.length} {language === 'en' ? 'users' : 'abakoresha'}
-              </span>
-                  <button
-                    onClick={async () => {
-                      setLoadingUsers(true)
-                      try {
-                        const synced = await userAPI.syncUsersFromAuth()
-                        setAllUsers(synced || [])
-                        alert(language === 'en' ? 'Users synced from Supabase auth profiles' : 'Abakoresha basubiwemo kuva muri Supabase auth')
-                      } catch (err) {
-                        console.error('Sync failed', err)
-                        alert(language === 'en' ? 'Failed to sync users from auth. Ensure RPC function "sync_all_auth_users_to_profiles" exists in Supabase.' : 'Gusubiramo abakoresha byanze. Reba niba RPC "sync_all_auth_users_to_profiles" ibaho muri Supabase.')
-                      } finally {
-                        setLoadingUsers(false)
-                      }
-                    }}
-                    className="text-sm bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    {language === 'en' ? 'Sync Users' : 'Subiriza Abakoresha'}
-                  </button>
-                  </div>
-            </div>
-            {loadingUsers ? (
-              <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
-                {language === 'en' ? 'Loading users...' : 'Gusoma abakoresha...'}
+        {/* Manage Items Tab */}
+        {activeTab === 'items' && (() => {
+          // Combine sample items with Supabase items (same as stats calculation)
+          // Filter out deleted sample items
+          const allSampleItems = [...(sampleItems.lost || []), ...(sampleItems.found || [])]
+            .filter(sample => !deletedSampleItems.includes(sample.id))
+          const combinedItems = [...allItems, ...allSampleItems]
+          
+          return (
+            <section className="mb-10">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {language === 'en' ? 'All Items' : 'Ibintu Byose'}
+                </h2>
+                <span className="text-sm text-gray-500">
+                  {combinedItems.length} {language === 'en' ? 'items' : 'ibintu'}
+                </span>
               </div>
-            ) : allUsers.length === 0 ? (
-              <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
-                {language === 'en' ? 'No users found.' : 'Nta bakoresha babonetse.'}
-              </div>
-            ) : (
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {language === 'en' ? 'Name' : 'Amazina'}
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {language === 'en' ? 'Email' : 'Imeyili'}
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {language === 'en' ? 'Phone' : 'Telefoni'}
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {language === 'en' ? 'Role' : 'Urwego'}
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {language === 'en' ? 'Verified' : 'Byemejwe'}
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {language === 'en' ? 'Actions' : 'Ibyakozwe'}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {allUsers.length === 0 ? (
+              {loadingItems ? (
+                <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
+                  {language === 'en' ? 'Loading items...' : 'Gusoma ibintu...'}
+                </div>
+              ) : combinedItems.length === 0 ? (
+                <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
+                  {language === 'en' ? 'No items found.' : 'Nta bintu babonetse.'}
+                </div>
+              ) : (
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
                       <tr>
-                        <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
-                          {language === 'en' ? 'No users found' : 'Nta bakoresha babonetse'}
-                        </td>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {language === 'en' ? 'Item' : 'Ikintu'}
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {language === 'en' ? 'Type' : 'Ubwoko'}
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {language === 'en' ? 'Category' : 'Icyiciro'}
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {language === 'en' ? 'Location' : 'Ahantu'}
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {language === 'en' ? 'Status' : 'Imiterere'}
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {language === 'en' ? 'Date' : 'Itariki'}
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {language === 'en' ? 'Actions' : 'Ibyakozwe'}
+                        </th>
                       </tr>
-                    ) : (
-                      allUsers.map((user, index) => {
-                        const userId = user._id || user.id || `temp-${index}`
-                        const currentUser = authAPI.getCurrentUser()
-                        const currentUserId = currentUser?._id || currentUser?.id
-                        const isCurrentUser = currentUserId && (
-                          currentUserId === userId || 
-                          currentUserId.toString() === userId.toString() ||
-                          (user.email && currentUser?.email === user.email) ||
-                          (user.phone && currentUser?.phone === user.phone)
-                        )
-                        
-                        return (
-                          <tr key={userId || index} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-sm font-medium text-gray-900">{user.fullName || 'N/A'}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-sm text-gray-500">{user.email || 'N/A'}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="text-sm text-gray-500">{user.phone || 'N/A'}</div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                user.role === 'admin' 
-                                  ? 'bg-purple-100 text-purple-800' 
-                                  : 'bg-gray-100 text-gray-800'
-                              }`}>
-                                {user.role || 'user'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                                user.verified || user.email_confirmed_at
-                                  ? 'bg-green-100 text-green-800' 
-                                  : 'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {user.verified || user.email_confirmed_at
-                                  ? (language === 'en' ? 'Verified' : 'Byemejwe')
-                                  : (language === 'en' ? 'Unverified' : 'Ntibyemejwe')
-                                }
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              <button 
-                                onClick={() => handleViewUser(userId)}
-                                className="text-blue-600 hover:text-blue-900 mr-3 font-medium"
-                              >
-                                {language === 'en' ? 'View' : 'Reba'}
-                              </button>
-                              {!isCurrentUser && (
-                                <button 
-                                  onClick={() => handleDeleteUser(userId)}
-                                  className="text-red-600 hover:text-red-900 font-medium"
-                                >
-                                  {language === 'en' ? 'Delete' : 'Siba'}
-                                </button>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {combinedItems.map((item) => (
+                        <tr key={item.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center">
+                              {item.photo && (
+                                <img 
+                                  src={item.photo} 
+                                  alt={item.item_name || item.itemName} 
+                                  className="h-10 w-10 rounded object-cover mr-3"
+                                />
                               )}
-                              {isCurrentUser && (
-                                <span className="text-gray-400 text-xs italic">
-                                  {language === 'en' ? '(Current User)' : '(Umukoresha wa None)'}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        )}
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {item.item_name || item.itemName || 'N/A'}
+                                </div>
+                                <div className="text-xs text-gray-500 line-clamp-1">
+                                  {item.description || ''}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                              item.type === 'lost' 
+                                ? 'bg-red-100 text-red-800' 
+                                : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {item.type === 'lost' 
+                                ? (language === 'en' ? 'Lost' : 'Byabuze')
+                                : (language === 'en' ? 'Found' : 'Byabonetse')
+                              }
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-500">{item.category || 'N/A'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-500">{item.location || 'N/A'}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                              item.status === 'returned' || item.status === 'verified'
+                                ? 'bg-green-100 text-green-800'
+                                : item.status === 'active'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {item.status === 'returned' || item.status === 'verified'
+                                ? (language === 'en' ? 'Returned' : 'Byagarutse')
+                                : item.status === 'active'
+                                ? (language === 'en' ? 'Active' : 'Bikora')
+                                : (item.status || 'N/A')
+                              }
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-500">
+                              {item.event_date || item.date 
+                                ? new Date(item.event_date || item.date).toLocaleDateString()
+                                : item.created_at
+                                ? new Date(item.created_at).toLocaleDateString()
+                                : 'N/A'
+                              }
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            <button 
+                              onClick={() => handleDeleteItem(item.id)}
+                              className="text-red-600 hover:text-red-900 font-medium"
+                            >
+                              {language === 'en' ? 'Delete' : 'Siba'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )
+        })()}
       </main>
 
       <Footer />
