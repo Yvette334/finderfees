@@ -370,4 +370,8 @@ This is a formative assignment project. For questions or issues, please contact 
 - Email verification flow
 - Password reset functionality
 
----
+ Live Demo
+
+The application is deployed and publicly accessible at: https://finderfees-hx4m.vercel.app/
+
+
