@@ -357,14 +357,6 @@ Ensure your Supabase database has these tables with appropriate RLS policies con
 
 This is a formative assignment project. For questions or issues, please contact the project maintainer.
 
-## 📄 License
-
-This project is developed as part of a formative assignment at African Leadership University.
-
-## 👤 Author
-
-**Yvette Muhoracyeye**  
-African Leadership University
 
 ## 🔮 Future Enhancements
 

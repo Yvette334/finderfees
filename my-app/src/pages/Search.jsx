@@ -154,6 +154,7 @@ export default function search() {
   const [apiItems, setApiItems] = useState([])
   const [approvedClaims, setApprovedClaims] = useState([])
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState(null)
   
   // Check authentication status
   useEffect(() => {
@@ -161,6 +162,7 @@ export default function search() {
       try {
         const user = await authSupabase.getCurrentUser()
         setIsAuthenticated(!!user)
+        if (user) setCurrentUserId(user.id)
       } catch (err) {
         setIsAuthenticated(false)
       }
@@ -198,12 +200,31 @@ export default function search() {
     if (!item) return false
     // Check item status - added 'claimed' status
     if (item.status === 'claimed' || item.status === 'returned' || item.status === 'verified') return true
-    // Check if there's an approved claim for this item
+    // Check if there's an approved claim for this item (anyone)
     if (approvedClaims.some(c => c.item_id === item.id || c.itemId === item.id)) return true
     // Check localStorage fallbacks
     if (paidItemsSet.has(item.id)) return true
     if (verifiedSet.has(item.id)) return true
     return false
+  }
+
+  const getApprovedClaimForItem = (item) => approvedClaims.find(c => (c.item_id === item.id || c.itemId === item.id) && c.status === 'approved')
+
+  const isClaimedByCurrentUser = (item) => {
+    if (!currentUserId) return false
+    const claim = getApprovedClaimForItem(item)
+    if (claim && (claim.claimant_id === currentUserId || claim.claimantId === currentUserId)) return true
+    // Also check paid claims by user in localStorage
+    const paidClaimsByUser = JSON.parse(localStorage.getItem('paidClaimsByUser') || '[]')
+    if (paidClaimsByUser.some(pc => pc.itemId === item.id && pc.payerId === currentUserId)) return true
+    return false
+  }
+
+  const isClaimedBySomeoneElse = (item) => {
+    const claim = getApprovedClaimForItem(item)
+    if (!claim) return false
+    if (!currentUserId) return true
+    return !(claim.claimant_id === currentUserId || claim.claimantId === currentUserId)
   }
 
   // Get phone number to display for an item
@@ -220,10 +241,19 @@ export default function search() {
     })
     
     if (approvedClaim) {
+      // Show claimant's contact only to the claimant (and after payment)
       const claimantPhone = approvedClaim.claimant_phone || approvedClaim.phone || ''
-      if (claimantPhone) {
-        return claimantPhone
+      const claimantId = approvedClaim.claimant_id || approvedClaim.claimantId || null
+      const paidClaimsByUser = JSON.parse(localStorage.getItem('paidClaimsByUser') || '[]')
+      const userPaidThisClaim = !!(currentUserId && paidClaimsByUser.some(pc => pc.claimId === approvedClaim.id && pc.payerId === currentUserId))
+      if (claimantId && claimantId === currentUserId) {
+        if (userPaidThisClaim || paidItemsSet.has(item.id)) {
+          return item.owner_phone || item.userPhone || claimantPhone || ''
+        }
+        return language === 'en' ? 'Contact hidden until payment is made' : 'Kontaki yihishe kugeza kwishyura'
       }
+      // If the claim belongs to someone else, show 'Already claimed' placeholder
+      return language === 'en' ? 'Already claimed' : 'Byakemuwe'
     }
     
     // Check if item status is claimed
@@ -532,7 +562,11 @@ export default function search() {
                       </div>
                     )}
                   </div>
-                  {isItemClaimed(item) ? (
+                  {isClaimedByCurrentUser(item) ? (
+                    <div className="w-full bg-green-100 text-green-700 py-2 px-4 rounded-lg font-medium text-sm text-center">
+                      {language === 'en' ? 'Claimed (You)' : 'Wavuze (Wowe)'}
+                    </div>
+                  ) : isClaimedBySomeoneElse(item) ? (
                     <div className="w-full bg-gray-200 text-gray-600 py-2 px-4 rounded-lg font-medium text-sm text-center">
                       {language === 'en' ? 'Already Claimed' : 'Byakemuwe'}
                     </div>

@@ -207,6 +207,44 @@ function Dashboard() {
     return claimedByOther
   }
 
+  // Check if an item was claimed by the current user
+  const isClaimedByCurrentUser = (item) => {
+    if (!item || !currentUserId) return false
+    const claim = allApprovedClaims.find(c => (c.item_id === item.id || c.itemId === item.id) && c.status === 'approved')
+    if (!claim) return false
+    if (claim.claimant_id === currentUserId || claim.claimantId === currentUserId) return true
+    const paidClaimsByUser = JSON.parse(localStorage.getItem('paidClaimsByUser') || '[]')
+    if (paidClaimsByUser.some(pc => pc.itemId === item.id && pc.payerId === currentUserId)) return true
+    return false
+  }
+
+  // Get phone number to display for an item
+  const getItemPhone = (item) => {
+    if (!item) return ''
+    const approvedClaim = allApprovedClaims.find(c => (c.item_id === item.id || c.itemId === item.id) && c.status === 'approved')
+    const paidClaimsByUser = JSON.parse(localStorage.getItem('paidClaimsByUser') || '[]')
+    const paidItemsByUser = JSON.parse(localStorage.getItem('paidItemsByUser') || '[]')
+    if (approvedClaim) {
+      const claimantId = approvedClaim.claimant_id || approvedClaim.claimantId
+      if (claimantId === currentUserId) {
+        const userPaidThisClaim = paidClaimsByUser.some(pc => pc.claimId === approvedClaim.id && pc.payerId === currentUserId) || paidItemsByUser.some(pi => pi.itemId === item.id && pi.payerId === currentUserId)
+        if (userPaidThisClaim || paidItemsSet.has(item.id)) {
+          return item.owner_phone || item.userPhone || ''
+        }
+        return language === 'en' ? 'Contact hidden until payment is made' : 'Kontaki yihishe kugeza kwishyura'
+      }
+      return language === 'en' ? 'Already claimed' : 'Cyamaze gufatwa'
+    }
+    // No approved claim - for lost items, show phone only if paid or verified
+    if (item.type === 'lost') {
+      if (paidItemsSet.has(item.id) || verifiedSet.has(item.id)) {
+        return item.userPhone || ''
+      }
+      return language === 'en' ? 'Contact hidden until payment is made' : 'Kontaki yihishe kugeza kwishyura'
+    }
+    return item.userPhone || ''
+  }
+
   const totalItems = reportedItems.length
   const itemsReturned = myApproved.length
   const totalRewards = myStats.totalEarnings || myApproved.reduce((sum, c) => sum + (c.reward || 0), 0)
@@ -385,7 +423,8 @@ function Dashboard() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {recentItems.map(item => {
-                const claimed = isItemClaimed(item)
+                const claimedByMe = isClaimedByCurrentUser(item)
+                const claimedByOthers = isClaimedBySomeoneElse(item)
                 const canDelete = currentUserId && (item.user_id === currentUserId || item.userId === currentUserId)
                 return (
                 <div key={item.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
@@ -414,11 +453,13 @@ function Dashboard() {
                       </span>
                       <div className="flex items-center gap-2">
                         <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          claimed ? 'bg-gray-200 text-gray-700' : 'bg-green-100 text-green-700'
+                          claimedByMe ? 'bg-green-100 text-green-700' : claimedByOthers ? 'bg-gray-200 text-gray-700' : 'bg-green-100 text-green-700'
                         }`}>
-                          {claimed
-                            ? (language === 'en' ? 'Claimed' : 'Cyamaze gufatwa')
-                            : (language === 'en' ? 'Available' : 'Kiraboneka')}
+                          {claimedByMe
+                            ? (language === 'en' ? 'Claimed (You)' : 'Wavuze (Wowe)')
+                            : claimedByOthers
+                              ? (language === 'en' ? 'Already Claimed' : 'Cyamaze gufatwa')
+                              : (language === 'en' ? 'Available' : 'Kiraboneka')}
                         </span>
                         {canDelete && (
                           <button
@@ -437,6 +478,9 @@ function Dashboard() {
                       <p>📍 {item.location}</p>
                       <p>📅 {item.date ? new Date(item.date).toLocaleDateString() : (item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—')}</p>
                     </div>
+                        <p className="text-xs text-gray-500">
+                          {getItemPhone(item)}
+                        </p>
                     {item.reward && (
                       <div className="pt-3 border-t border-gray-200 mb-3">
                         <p className="text-sm font-semibold text-green-600">
@@ -444,7 +488,7 @@ function Dashboard() {
                         </p>
                       </div>
                     )}
-                    {!claimed ? (
+                    {!claimedByMe && !claimedByOthers ? (
                       <button
                         onClick={() => {
                           navigate('/verify', { state: { itemId: item.id, itemName: item.itemName, ownerName: item.userName, photo: item.photo, itemType: item.type } })
@@ -453,6 +497,10 @@ function Dashboard() {
                       >
                         {language === 'en' ? 'Claim This Item' : 'Fata Iki Kintu'}
                       </button>
+                    ) : claimedByMe ? (
+                      <div className="w-full text-center text-sm text-green-700 border border-green-100 rounded-lg py-2 mt-3">
+                        {language === 'en' ? 'Claimed (You)' : 'Wavuze (Wowe)'}
+                      </div>
                     ) : (
                       <div className="w-full text-center text-sm text-gray-600 border border-gray-200 rounded-lg py-2 mt-3">
                         {language === 'en' ? 'Already claimed' : 'Cyamaze gufatwa'}

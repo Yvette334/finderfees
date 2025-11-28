@@ -71,7 +71,7 @@ function Payment() {
     setProcessing(true)
     
     // Simulate payment processing - payment method will be added later
-    setTimeout(() => {
+    setTimeout(async () => {
       // Mark this item as paid
       const paidItemIds = JSON.parse(localStorage.getItem('paidItemIds') || '[]')
       if (claimId && !paidItemIds.includes(claimId)) {
@@ -88,6 +88,31 @@ function Payment() {
           paidItems.push(claim.itemId)
           localStorage.setItem('paidItems', JSON.stringify(paidItems))
         }
+      }
+
+      // Also store paid items and claims associated with current user (payer)
+      try {
+        const user = await (async () => {
+          const u = await import('../utils/supabaseAPI').then(m => m.authSupabase.getCurrentUser())
+          return u
+        })()
+        const payerId = user?.id || null
+        if (payerId) {
+          const paidClaimsByUser = JSON.parse(localStorage.getItem('paidClaimsByUser') || '[]')
+          if (claimId && !paidClaimsByUser.some(pc => pc.claimId === claimId && pc.payerId === payerId)) {
+            paidClaimsByUser.push({ claimId, payerId, itemId: claim?.itemId })
+            localStorage.setItem('paidClaimsByUser', JSON.stringify(paidClaimsByUser))
+          }
+          if (claim?.itemId) {
+            const paidItemsByUser = JSON.parse(localStorage.getItem('paidItemsByUser') || '[]')
+            if (!paidItemsByUser.some(pi => pi.itemId === claim.itemId && pi.payerId === payerId)) {
+              paidItemsByUser.push({ itemId: claim.itemId, payerId })
+              localStorage.setItem('paidItemsByUser', JSON.stringify(paidItemsByUser))
+            }
+          }
+        }
+      } catch (e) {
+        // If fetching user metadata fails, fallback to global storage
       }
       
       setProcessing(false)
