@@ -35,7 +35,7 @@ function Verify() {
       if (value.length === 10) {
         // Validate phone starts with 078 or 073
         if (value.startsWith('078') || value.startsWith('073')) {
-          setPhoneError('')
+        setPhoneError('')
         } else {
           setPhoneError(language === 'en' 
             ? 'Phone number must start with 078 or 073' 

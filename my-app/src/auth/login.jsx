@@ -101,7 +101,7 @@ export default function Login() {
         if (!error && role === 'admin') {
           navigate('/admin')
         } else {
-          navigate('/dashboard')
+        navigate('/dashboard')
         }
       }
     } catch (err) {
@@ -173,15 +173,15 @@ export default function Login() {
                         />
                     </div>
                     <button 
-                        type="submit" 
-                        disabled={loading}
-                        className="w-full bg-black text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {loading 
-                          ? (language === 'en' ? 'Logging in...' : 'Kwinjira...')
-                          : (language === 'en' ? 'Login' : 'Injira')
-                        }
-                      </button>
+                      type="submit" 
+                      disabled={loading}
+                      className="w-full bg-black text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading 
+                        ? (language === 'en' ? 'Logging in...' : 'Kwinjira...')
+                        : (language === 'en' ? 'Login' : 'Injira')
+                      }
+                    </button>
                 </form>
             </div>
 

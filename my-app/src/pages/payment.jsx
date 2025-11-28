@@ -13,6 +13,7 @@ function Payment() {
   const [processing, setProcessing] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [phoneError, setPhoneError] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
     const handleLanguageChange = (e) => {
@@ -48,6 +49,8 @@ function Payment() {
 
   const handlePayment = async (e) => {
     e.preventDefault()
+    setPhoneError('')
+    setError('')
     
     // Validate phone number
     if (phoneNumber.length !== 10) {
@@ -67,7 +70,7 @@ function Payment() {
 
     setProcessing(true)
     
-    // Simulate payment processing
+    // Simulate payment processing - payment method will be added later
     setTimeout(() => {
       // Mark this item as paid
       const paidItemIds = JSON.parse(localStorage.getItem('paidItemIds') || '[]')
@@ -89,7 +92,6 @@ function Payment() {
       
       setProcessing(false)
       setCompleted(true)
-      // In real app, this would call payment API
     }, 2000)
   }
 
@@ -223,6 +225,12 @@ function Payment() {
                 )}
               </div>
 
+              {(phoneError || error) && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm mb-4">
+                  {error || phoneError}
+                </div>
+              )}
+
               {processing ? (
                 <div className="text-center py-8">
                   <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-spin">
@@ -237,7 +245,8 @@ function Payment() {
               ) : (
                 <button
                   type="submit"
-                  className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium transition-colors"
+                  disabled={phoneError}
+                  className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white py-3 rounded-lg font-medium transition-colors"
                 >
                   {language === 'en' ? 'Pay Now' : 'Kwishyura None'}
                 </button>

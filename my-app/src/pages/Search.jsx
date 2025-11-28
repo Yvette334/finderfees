@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
@@ -196,8 +196,8 @@ export default function search() {
   // Check if item is claimed
   const isItemClaimed = (item) => {
     if (!item) return false
-    // Check item status
-    if (item.status === 'returned' || item.status === 'verified') return true
+    // Check item status - added 'claimed' status
+    if (item.status === 'claimed' || item.status === 'returned' || item.status === 'verified') return true
     // Check if there's an approved claim for this item
     if (approvedClaims.some(c => c.item_id === item.id || c.itemId === item.id)) return true
     // Check localStorage fallbacks
@@ -205,6 +205,45 @@ export default function search() {
     if (verifiedSet.has(item.id)) return true
     return false
   }
+
+  // Get phone number to display for an item
+  const getItemPhone = useCallback((item) => {
+    if (!item) return ''
+    
+    // Check if item is claimed (has approved claim)
+    const approvedClaim = approvedClaims.find(c => {
+      const itemIdMatch = (c.item_id === item.id || c.itemId === item.id)
+      const itemNameMatch = c.item_name && item.itemName && 
+        c.item_name.toLowerCase() === item.itemName.toLowerCase()
+      const statusMatch = c.status === 'approved' || !c.status
+      return (itemIdMatch || itemNameMatch) && statusMatch
+    })
+    
+    if (approvedClaim) {
+      const claimantPhone = approvedClaim.claimant_phone || approvedClaim.phone || ''
+      if (claimantPhone) {
+        return claimantPhone
+      }
+    }
+    
+    // Check if item status is claimed
+    if (item.status === 'claimed') {
+      return item.owner_phone || item.userPhone || ''
+    }
+    
+    // For lost items, show phone only if paid or verified
+    if (item.type === 'lost') {
+      if (paidItemsSet.has(item.id) || verifiedSet.has(item.id)) {
+        return item.userPhone || ''
+      }
+      return language === 'en' 
+        ? 'Contact hidden until payment is made'
+        : 'Kontaki yihishe kugeza kwishyura'
+    }
+    
+    // For found items, always show phone
+    return item.userPhone || ''
+  }, [approvedClaims, paidItemsSet, verifiedSet, language])
   
   // Get all found items to match with lost items (API + local)
   const foundItems = useMemo(() => {
@@ -348,7 +387,7 @@ export default function search() {
   return (
     <div className="min-h-screen bg-white">
       {isAuthenticated ? (
-        <Navbar/>
+      <Navbar/>
       ) : (
         <header className="bg-white border-b border-gray-200">
           <nav className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -383,11 +422,11 @@ export default function search() {
       )}
       <div className="max-w-7xl mx-auto px-4 py-12">
         {isAuthenticated && (
-          <div className="mb-4">
-            <Link to="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
-              ← {language === 'en' ? 'Back to Dashboard' : 'Subira ku Dashboard'}
-            </Link>
-          </div>
+        <div className="mb-4">
+          <Link to="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
+            ← {language === 'en' ? 'Back to Dashboard' : 'Subira ku Dashboard'}
+          </Link>
+        </div>
         )}
         <h1 className="text-4xl font-bold text-gray-900 mb-8 text-center">
           {language === 'en' ? 'Search Items' : 'Shakisha Ibintu'}
@@ -475,20 +514,7 @@ export default function search() {
                         {language === 'en' ? 'By:' : 'Na:'} {item.userName}
                       </p>
                       <p className="text-xs text-gray-500">
-                        {item.type === 'lost' 
-                          ? (paidItemsSet.has(item.id) 
-                              ? (() => {
-                                  const claim = approvedClaims.find(c => c.itemId === item.id)
-                                  return claim?.phone || item.userPhone || ''
-                                })()
-                              : verifiedSet.has(item.id)
-                                ? item.userPhone
-                                : (language === 'en' 
-                                    ? 'Contact hidden until payment is made'
-                                    : 'Kontaki yihishe kugeza kwishyura')
-                            )
-                          : item.userPhone
-                        }
+                        {getItemPhone(item)}
                       </p>
                     </div>
                     {item.reward && (
