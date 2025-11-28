@@ -63,6 +63,7 @@ function Dashboard() {
   const [currentUserId, setCurrentUserId] = useState(cachedUser?.id || null)
   const [notifications, setNotifications] = useState([])
   const [approvedClaims, setApprovedClaims] = useState([])
+  const [allApprovedClaims, setAllApprovedClaims] = useState([]) // All approved claims to check who claimed what
   const verifiedSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('verifiedItemIds') || '[]')), [])
   const paidItemsSet = useMemo(() => new Set(JSON.parse(localStorage.getItem('paidItems') || '[]')), [])
   const [myStats, setMyStats] = useState({
@@ -83,12 +84,20 @@ function Dashboard() {
           const notifs = await notificationsSupabase.getNotifications(user.id)
           setNotifications(notifs || [])
           
-          // Also fetch approved claims to check item status
+          // Fetch approved claims made by this user (filter by claimant_id)
           const { data: claimsData } = await supabase
             .from('claims')
             .select('*')
             .eq('status', 'approved')
+            .eq('claimant_id', user.id)
           setApprovedClaims(claimsData || [])
+          
+          // Also fetch ALL approved claims to check which items were claimed by others
+          const { data: allClaimsData } = await supabase
+            .from('claims')
+            .select('*')
+            .eq('status', 'approved')
+          setAllApprovedClaims(allClaimsData || [])
         }
       } catch (err) {
         console.error('Failed to fetch notifications', err)
@@ -98,12 +107,14 @@ function Dashboard() {
   }, [])
   
   const isItemClaimed = (item) => {
-    if (!item) return false
-    if (typeof item.status === 'string' && (item.status.toLowerCase() === 'returned' || item.status.toLowerCase() === 'verified')) return true
-    if (approvedClaims.some(c => c.item_id === item.id || c.itemId === item.id)) return true
-    if (paidItemsSet.has(item.id)) return true
-    if (verifiedSet.has(item.id)) return true
-    return false
+    if (!item || !currentUserId) return false
+    // Only check if the item was claimed by the current user
+    const claimedByMe = approvedClaims.some(c => 
+      (c.item_id === item.id || c.itemId === item.id) && 
+      (c.claimant_id === currentUserId || c.claimantId === currentUserId)
+    )
+    // Only show as claimed if this specific user claimed it
+    return claimedByMe
   }
 
   const handleDeleteItem = async (itemId) => {
@@ -185,11 +196,24 @@ function Dashboard() {
     setShowNotification(false)
   }
 
+  // Check if an item was claimed by someone else (not the current user)
+  const isClaimedBySomeoneElse = (item) => {
+    if (!item || !currentUserId) return false
+    // Check if item was claimed by someone other than current user
+    const claimedByOther = allApprovedClaims.some(c => 
+      (c.item_id === item.id || c.itemId === item.id) && 
+      c.claimant_id !== currentUserId && c.claimantId !== currentUserId
+    )
+    return claimedByOther
+  }
+
   const totalItems = reportedItems.length
   const itemsReturned = myApproved.length
   const totalRewards = myStats.totalEarnings || myApproved.reduce((sum, c) => sum + (c.reward || 0), 0)
 
+  // Filter out items that were claimed by someone else
   const recentItems = [...reportedItems]
+    .filter(item => !isClaimedBySomeoneElse(item)) // Only show items not claimed by others
     .sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))
     .slice(0, 6)
 

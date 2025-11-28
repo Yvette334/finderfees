@@ -380,4 +380,3 @@ African Leadership University
 
 ---
 
-**Built with ❤️ for Rwanda and Africa**
