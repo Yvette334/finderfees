@@ -145,7 +145,25 @@ function Dashboard() {
 
   useEffect(() => {
     // Check for unread notifications from Supabase
-    const unreadNotifs = notifications.filter(n => !n.read_at)
+    const unreadNotifs = notifications.filter(n => {
+      if (n.read_at) return false // Already read
+      
+      // Check if payment has been made for this claim
+      if (n.notif_type === 'claim_approved' && n.data) {
+        const claimId = n.data.claim_id || n.data.claimId
+        if (claimId && currentUserId) {
+          const paidClaimsByUser = JSON.parse(localStorage.getItem('paidClaimsByUser') || '[]')
+          const hasPaid = paidClaimsByUser.some(pc => 
+            (pc.claimId === claimId || pc.claimId === String(claimId)) && 
+            pc.payerId === currentUserId
+          )
+          if (hasPaid) return false // Don't show if already paid
+        }
+      }
+      
+      return true
+    })
+    
     if (unreadNotifs.length > 0) {
       const latest = unreadNotifs[0]
       setLatestNotification(latest)
@@ -153,7 +171,21 @@ function Dashboard() {
     } else {
       // Fallback to approved claims check
       const viewedIds = JSON.parse(localStorage.getItem('viewedNotifications') || '[]')
-      const newApproved = myApproved.find(claim => !viewedIds.includes(claim.id))
+      const newApproved = myApproved.find(claim => {
+        if (viewedIds.includes(claim.id)) return false
+        
+        // Check if payment has been made for this claim
+        if (currentUserId) {
+          const paidClaimsByUser = JSON.parse(localStorage.getItem('paidClaimsByUser') || '[]')
+          const hasPaid = paidClaimsByUser.some(pc => 
+            (pc.claimId === claim.id || pc.claimId === String(claim.id)) && 
+            pc.payerId === currentUserId
+          )
+          if (hasPaid) return false // Don't show if already paid
+        }
+        
+        return true
+      })
       
       if (newApproved) {
         setLatestNotification({
@@ -167,7 +199,7 @@ function Dashboard() {
         setShowNotification(true)
       }
     }
-  }, [notifications, myApproved, language])
+  }, [notifications, myApproved, language, currentUserId])
 
   const dismissNotification = async () => {
     if (latestNotification) {

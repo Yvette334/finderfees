@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useLocation, useNavigate, Link } from 'react-router-dom'
 import Navbar from '../components/navbar'
 import Footer from '../components/footer'
+import { notificationsSupabase, authSupabase } from '../utils/supabaseAPI'
 
 function Payment() {
   const location = useLocation()
@@ -92,10 +93,7 @@ function Payment() {
 
       // Also store paid items and claims associated with current user (payer)
       try {
-        const user = await (async () => {
-          const u = await import('../utils/supabaseAPI').then(m => m.authSupabase.getCurrentUser())
-          return u
-        })()
+        const user = await authSupabase.getCurrentUser()
         const payerId = user?.id || null
         if (payerId) {
           const paidClaimsByUser = JSON.parse(localStorage.getItem('paidClaimsByUser') || '[]')
@@ -110,9 +108,27 @@ function Payment() {
               localStorage.setItem('paidItemsByUser', JSON.stringify(paidItemsByUser))
             }
           }
+          
+          // Mark related notifications as read after payment
+          try {
+            const allNotifications = await notificationsSupabase.getNotifications(payerId)
+            const claimNotifications = (allNotifications || []).filter(n => 
+              n.notif_type === 'claim_approved' && 
+              (n.data?.claim_id === claimId || n.data?.claimId === claimId)
+            )
+            // Mark all related notifications as read
+            for (const notif of claimNotifications) {
+              if (notif.id && !notif.read_at) {
+                await notificationsSupabase.markAsRead(notif.id)
+              }
+            }
+          } catch (notifError) {
+            console.warn('Failed to mark notifications as read:', notifError)
+          }
         }
       } catch (e) {
         // If fetching user metadata fails, fallback to global storage
+        console.warn('Payment completion error:', e)
       }
       
       setProcessing(false)
@@ -302,10 +318,10 @@ function Payment() {
                 {language === 'en' ? 'Go to Dashboard' : 'Genda ku Dashboard'}
               </Link>
               <Link
-                to="/messages"
+                to="/dashboard"
                 className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors text-center"
               >
-                {language === 'en' ? 'Contact Founder' : 'Koresha Umwubatsi'}
+                {language === 'en' ? 'Contact to dashboard' : 'Genda ku Dashboard'}
               </Link>
             </div>
           </div>
