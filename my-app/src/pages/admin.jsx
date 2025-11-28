@@ -221,12 +221,14 @@ function Admin() {
       // Update claim in Supabase
       const approvedClaim = await claimsSupabase.approveClaim(claimId, reviewerId)
       
-      // Update item status - mark as verified and returned
+      // Update item status - mark as claimed, verified and returned, and store claimant phone
       if (claim.item_id) {
         try {
           await itemsSupabase.updateItem(claim.item_id, { 
-            status: 'returned',
-            verified: true
+            status: 'claimed', // Mark as claimed when approved
+            verified: true,
+            // Also store claimant phone number so it can be displayed
+            owner_phone: claim.claimant_phone || claim.phone || null
           })
         } catch (itemErr) {
           console.warn('Failed to update item status', itemErr)
