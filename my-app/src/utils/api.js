@@ -42,16 +42,33 @@ const syncProfileRecord = async (user) => {
   const record = {
     id: user.id,
     email: user.email,
-    full_name: user.user_metadata?.fullName || user.email || '',
+    full_name: user.user_metadata?.fullName || user.user_metadata?.full_name || user.email?.split('@')[0] || '',
     phone: user.user_metadata?.phone || '',
     language: user.user_metadata?.language || 'en',
+    created_at: user.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString()
   }
 
   try {
-    await supabase.from(PROFILES_TABLE).upsert(record, { onConflict: 'id' })
+    const { error } = await supabase.from(PROFILES_TABLE).upsert(record, { 
+      onConflict: 'id',
+      ignoreDuplicates: false 
+    })
+    if (error) {
+      console.warn('Profile sync error:', error.message || error)
+      // Try insert if upsert fails (in case of permission issues)
+      try {
+        await supabase.from(PROFILES_TABLE).insert(record).select()
+      } catch (insertError) {
+        // If insert also fails, the trigger should handle it
+        console.warn('Profile insert also failed, trigger should handle it:', insertError.message || insertError)
+      }
+    } else {
+      console.log('Profile synced successfully for user:', user.email)
+    }
   } catch (error) {
     console.warn('Profile sync skipped:', error.message || error)
+    // Don't throw - the database trigger should handle it
   }
 }
 
