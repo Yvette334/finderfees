@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import AdminNavbar from '../components/AdminNavbar'
 import Footer from '../components/footer'
+import { authAPI, userAPI } from '../utils/api'
 import { authSupabase, claimsSupabase, itemsSupabase, notificationsSupabase } from '../utils/supabaseAPI'
 import supabase from '../utils/supabaseClient'
 import { sampleItems } from './Search'
@@ -11,8 +12,10 @@ function Admin() {
   const [pendingClaims, setPendingClaims] = useState([])
   const [approvedClaims, setApprovedClaims] = useState([])
   const [rejectedClaims, setRejectedClaims] = useState([])
+  const [allUsers, setAllUsers] = useState([])
   const [allItems, setAllItems] = useState([])
   const [allPayments, setAllPayments] = useState([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
   const [loadingItems, setLoadingItems] = useState(false)
   const [totalUsersCount, setTotalUsersCount] = useState(0)
   const [deletedSampleItems, setDeletedSampleItems] = useState(() => {
@@ -52,6 +55,37 @@ function Admin() {
       const rejected = (allClaims.data || []).filter(c => c.status === 'rejected')
       setApprovedClaims(approved)
       setRejectedClaims(rejected)
+      
+      // Fetch total users count from Supabase Auth
+      try {
+        const { data: allAuthUsers, error: authError } = await supabase.rpc('get_all_auth_users')
+        
+        if (!authError && allAuthUsers && Array.isArray(allAuthUsers)) {
+          setTotalUsersCount(allAuthUsers.length)
+        } else if (authError) {
+          // Fallback: try alternative RPC name
+          const { data: altUsers, error: altError } = await supabase.rpc('get_all_users')
+          
+          if (!altError && altUsers && Array.isArray(altUsers)) {
+            setTotalUsersCount(altUsers.length)
+          } else {
+            // Try to get count from profiles table as last resort
+            const { count: profilesCount, error: profilesError } = await supabase
+              .from('profiles')
+              .select('*', { count: 'exact', head: true })
+            if (!profilesError && profilesCount !== null) {
+              setTotalUsersCount(profilesCount)
+            } else {
+              setTotalUsersCount(0)
+            }
+          }
+        } else {
+          setTotalUsersCount(0)
+        }
+      } catch (userCountError) {
+        console.error('Error fetching user count:', userCountError)
+        setTotalUsersCount(0)
+      }
     } catch (err) {
       console.warn('Failed to load admin data via Supabase', err)
       // Fallback to localStorage if Supabase fails
@@ -67,6 +101,35 @@ function Admin() {
   useEffect(() => {
     loadAdminData()
   }, [])
+
+  // Fetch all users when users tab is active
+  useEffect(() => {
+    if (activeTab === 'users') {
+      const fetchUsers = async () => {
+        setLoadingUsers(true)
+        try {
+          const response = await userAPI.getAllUsers()
+          let users = []
+          
+          if (Array.isArray(response)) {
+            users = response
+          } else if (response?.users && Array.isArray(response.users)) {
+            users = response.users
+          } else if (response?.data && Array.isArray(response.data)) {
+            users = response.data
+          }
+          
+          setAllUsers(users)
+        } catch (error) {
+          console.error('Error fetching users:', error)
+          setAllUsers([])
+        } finally {
+          setLoadingUsers(false)
+        }
+      }
+      fetchUsers()
+    }
+  }, [activeTab])
 
   // Fetch all items when items tab is active
   useEffect(() => {
@@ -249,6 +312,36 @@ function Admin() {
     }
   }
 
+  const handleViewUser = async (userId) => {
+    try {
+      const response = await userAPI.getUserById(userId)
+      let user = null
+      if (response.user) {
+        user = response.user
+      } else if (response.data) {
+        user = response.data
+      } else if (response._id || response.id) {
+        user = response
+      } else {
+        user = allUsers.find(u => (u._id || u.id) === userId)
+      }
+      
+      if (user) {
+        alert(`${language === 'en' ? 'User Details' : 'Amakuru y\'Umukoresha'}\n\n${language === 'en' ? 'Name:' : 'Amazina:'} ${user.fullName || 'N/A'}\n${language === 'en' ? 'Email:' : 'Imeyili:'} ${user.email || 'N/A'}\n${language === 'en' ? 'Phone:' : 'Telefoni:'} ${user.phone || 'N/A'}\n${language === 'en' ? 'Role:' : 'Urwego:'} ${user.role || 'user'}\n${language === 'en' ? 'Verified:' : 'Byemejwe:'} ${user.verified || user.email_confirmed_at ? (language === 'en' ? 'Yes' : 'Yego') : (language === 'en' ? 'No' : 'Oya')}`)
+      } else {
+        alert(language === 'en' ? 'User not found' : 'Umukoresha ntabwo aboneka')
+      }
+    } catch (error) {
+      console.error('Error fetching user:', error)
+      const localUser = allUsers.find(u => (u._id || u.id) === userId)
+      if (localUser) {
+        alert(`${language === 'en' ? 'User Details' : 'Amakuru y\'Umukoresha'}\n\n${language === 'en' ? 'Name:' : 'Amazina:'} ${localUser.fullName || 'N/A'}\n${language === 'en' ? 'Email:' : 'Imeyili:'} ${localUser.email || 'N/A'}\n${language === 'en' ? 'Phone:' : 'Telefoni:'} ${localUser.phone || 'N/A'}\n${language === 'en' ? 'Role:' : 'Urwego:'} ${localUser.role || 'user'}`)
+      } else {
+        alert(language === 'en' ? 'Failed to load user details' : 'Kugenzura amakuru y\'umukoresha byanze')
+      }
+    }
+  }
+
   const handleDeleteItem = async (itemId) => {
     const confirmMessage = language === 'en' 
       ? 'Are you sure you want to delete this item? This action cannot be undone.'
@@ -288,19 +381,19 @@ function Admin() {
     <div className="min-h-screen flex flex-col bg-white">
       <AdminNavbar />
 
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-10">
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
         <div className="mb-4">
         </div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4 sm:mb-6">
           {language === 'en' ? 'Admin Dashboard' : 'Dashboard ya Admin'}
         </h1>
 
         {/* Tab Navigation */}
-        <div className="border-b border-gray-200 mb-8">
-          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+        <div className="border-b border-gray-200 mb-6 sm:mb-8 overflow-x-auto">
+          <nav className="-mb-px flex space-x-4 sm:space-x-8 min-w-max" aria-label="Tabs">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-2 sm:py-3 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm ${
                 activeTab === 'overview'
                   ? 'border-gray-900 text-gray-900'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -310,7 +403,7 @@ function Admin() {
             </button>
             <button
               onClick={() => setActiveTab('claims')}
-              className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-2 sm:py-3 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm ${
                 activeTab === 'claims'
                   ? 'border-gray-900 text-gray-900'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -318,14 +411,24 @@ function Admin() {
             >
               {language === 'en' ? 'Manage Claims' : 'Gucunga Ibyifuzo'}
               {pendingClaims.length > 0 && (
-                <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                <span className="ml-1 sm:ml-2 inline-flex items-center px-1.5 sm:px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                   {pendingClaims.length}
                 </span>
               )}
             </button>
             <button
+              onClick={() => setActiveTab('users')}
+              className={`whitespace-nowrap py-2 sm:py-3 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm ${
+                activeTab === 'users'
+                  ? 'border-gray-900 text-gray-900'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {language === 'en' ? 'Manage Users' : 'Gucunga Abakoresha'}
+            </button>
+            <button
               onClick={() => setActiveTab('items')}
-              className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-2 sm:py-3 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm ${
                 activeTab === 'items'
                   ? 'border-gray-900 text-gray-900'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -340,69 +443,69 @@ function Admin() {
         {activeTab === 'overview' && (
           <>
             {/* Statistics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              <div className="bg-white border border-gray-200 rounded-xl p-6">
-                <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Users' : 'Abakoresha Bose'}</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalUsers}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+              <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6">
+                <p className="text-xs sm:text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Users' : 'Abakoresha Bose'}</p>
+                <p className="text-xl sm:text-2xl font-bold text-gray-900">{totalUsersCount || stats.totalUsers || 0}</p>
               </div>
-              <div className="bg-white border border-gray-200 rounded-xl p-6">
-                <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Pending Claims' : 'Ibyifuzo Bitegereje'}</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.pendingClaimsCount}</p>
+              <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6">
+                <p className="text-xs sm:text-sm text-gray-500 mb-1">{language === 'en' ? 'Pending Claims' : 'Ibyifuzo Bitegereje'}</p>
+                <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.pendingClaimsCount}</p>
               </div>
-              <div className="bg-white border border-gray-200 rounded-xl p-6">
-                <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Commission' : 'Komisiyo Yose'}</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalCommission.toLocaleString()} RWF</p>
+              <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6">
+                <p className="text-xs sm:text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Commission' : 'Komisiyo Yose'}</p>
+                <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.totalCommission.toLocaleString()} RWF</p>
               </div>
-              <div className="bg-white border border-gray-200 rounded-xl p-6">
-                <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Items' : 'Ibintu Byose'}</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalItems}</p>
+              <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6">
+                <p className="text-xs sm:text-sm text-gray-500 mb-1">{language === 'en' ? 'Total Items' : 'Ibintu Byose'}</p>
+                <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.totalItems}</p>
               </div>
             </div>
 
             {/* System Overview */}
-            <div className="bg-white border border-gray-200 rounded-xl p-6 mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+            <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 mb-6 sm:mb-8">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-4">
                 {language === 'en' ? 'System Overview' : 'Incamake y\'Ikigo'}
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Lost Items' : 'Ibintu Byabuze'}</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.lostItems}</p>
+                  <p className="text-xs sm:text-sm text-gray-500 mb-1">{language === 'en' ? 'Lost Items' : 'Ibintu Byabuze'}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.lostItems}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Found Items' : 'Ibintu Byabonetse'}</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.foundItems}</p>
+                  <p className="text-xs sm:text-sm text-gray-500 mb-1">{language === 'en' ? 'Found Items' : 'Ibintu Byabonetse'}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.foundItems}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Active Items' : 'Ibintu Bikora'}</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.activeItems}</p>
+                  <p className="text-xs sm:text-sm text-gray-500 mb-1">{language === 'en' ? 'Active Items' : 'Ibintu Bikora'}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.activeItems}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500 mb-1">{language === 'en' ? 'Returned Items' : 'Ibintu Byagarutse'}</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.returnedItems}</p>
+                  <p className="text-xs sm:text-sm text-gray-500 mb-1">{language === 'en' ? 'Returned Items' : 'Ibintu Byagarutse'}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-gray-900">{stats.returnedItems}</p>
                 </div>
               </div>
             </div>
           </>
         )}
 
-        {/* Manage Claims Tab */}
-        {activeTab === 'claims' && (
-          <section className="mb-10">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">
-                {language === 'en' ? 'Pending Claims' : 'Ibyifuzo Bitegereje'}
-              </h2>
-              <span className="text-sm text-gray-500">
-                {pendingClaims.length} {language === 'en' ? 'pending' : 'bitegereje'}
-              </span>
-            </div>
-            {pendingClaims.length === 0 ? (
-              <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
-                {language === 'en' ? 'No claims awaiting verification.' : 'Nta byifuzo bitegereje ukemura.'}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Manage Claims Tab */}
+            {activeTab === 'claims' && (
+              <section className="mb-6 sm:mb-10">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
+                  <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
+                    {language === 'en' ? 'Pending Claims' : 'Ibyifuzo Bitegereje'}
+                  </h2>
+                  <span className="text-xs sm:text-sm text-gray-500">
+                    {pendingClaims.length} {language === 'en' ? 'pending' : 'bitegereje'}
+                  </span>
+                </div>
+                {pendingClaims.length === 0 ? (
+                  <div className="border border-gray-200 rounded-lg p-4 sm:p-6 text-center text-gray-500">
+                    {language === 'en' ? 'No claims awaiting verification.' : 'Nta byifuzo bitegereje ukemura.'}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                 {pendingClaims.map(claim => (
                   <div key={claim.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                     {claim.photo ? (
@@ -439,6 +542,130 @@ function Admin() {
           </section>
         )}
 
+        {/* Manage Users Tab */}
+        {activeTab === 'users' && (
+          <section className="mb-6 sm:mb-10">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
+                {language === 'en' ? 'All Users' : 'Abakoresha Byose'}
+              </h2>
+              <span className="text-xs sm:text-sm text-gray-500">
+                {allUsers.length} {language === 'en' ? 'users' : 'abakoresha'}
+              </span>
+            </div>
+            {loadingUsers ? (
+              <div className="border border-gray-200 rounded-lg p-4 sm:p-6 text-center text-gray-500">
+                {language === 'en' ? 'Loading users...' : 'Gusoma abakoresha...'}
+              </div>
+            ) : allUsers.length === 0 ? (
+              <div className="border border-gray-200 rounded-lg p-4 sm:p-6 text-center text-gray-500">
+                {language === 'en' ? 'No users found.' : 'Nta bakoresha babonetse.'}
+              </div>
+            ) : (
+              <>
+                {/* Desktop Table View */}
+                <div className="hidden md:block bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            {language === 'en' ? 'Name' : 'Amazina'}
+                          </th>
+                          <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            {language === 'en' ? 'Email' : 'Imeyili'}
+                          </th>
+                          <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            {language === 'en' ? 'Phone' : 'Telefoni'}
+                          </th>
+                          <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            {language === 'en' ? 'Role' : 'Urwego'}
+                          </th>
+                          <th className="px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            {language === 'en' ? 'Actions' : 'Ibyakozwe'}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {allUsers.map((user, index) => {
+                          const userId = user._id || user.id || `temp-${index}`
+                          
+                          return (
+                            <tr key={userId || index} className="hover:bg-gray-50">
+                              <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-medium text-gray-900">{user.fullName || 'N/A'}</div>
+                              </td>
+                              <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500 truncate max-w-xs">{user.email || 'N/A'}</div>
+                              </td>
+                              <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500">{user.phone || 'N/A'}</div>
+                              </td>
+                              <td className="px-4 lg:px-6 py-4 whitespace-nowrap">
+                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                  user.role === 'admin' 
+                                    ? 'bg-purple-100 text-purple-800' 
+                                    : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {user.role || 'user'}
+                                </span>
+                              </td>
+                              <td className="px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <button 
+                                  onClick={() => handleViewUser(userId)}
+                                  className="text-blue-600 hover:text-blue-900 font-medium"
+                                >
+                                  {language === 'en' ? 'View' : 'Reba'}
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Mobile Card View */}
+                <div className="md:hidden space-y-3">
+                  {allUsers.map((user, index) => {
+                    const userId = user._id || user.id || `temp-${index}`
+                    
+                    return (
+                      <div key={userId || index} className="bg-white border border-gray-200 rounded-xl p-4">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h3 className="text-sm font-semibold text-gray-900 mb-1">{user.fullName || 'N/A'}</h3>
+                            <p className="text-xs text-gray-500 truncate">{user.email || 'N/A'}</p>
+                          </div>
+                          <span className={`px-2 py-1 inline-flex text-xs leading-4 font-semibold rounded-full ml-2 ${
+                            user.role === 'admin' 
+                              ? 'bg-purple-100 text-purple-800' 
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {user.role || 'user'}
+                          </span>
+                        </div>
+                        <div className="space-y-1 mb-3">
+                          <p className="text-xs text-gray-600">
+                            <span className="font-medium">{language === 'en' ? 'Phone:' : 'Telefoni:'}</span> {user.phone || 'N/A'}
+                          </p>
+                        </div>
+                        <button 
+                          onClick={() => handleViewUser(userId)}
+                          className="w-full text-sm text-blue-600 hover:text-blue-900 font-medium py-2 border border-blue-200 rounded-lg hover:bg-blue-50"
+                        >
+                          {language === 'en' ? 'View Details' : 'Reba Amakuru'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
         {/* Manage Items Tab */}
         {activeTab === 'items' && (() => {
           // Combine sample items with Supabase items (same as stats calculation)
@@ -448,130 +675,209 @@ function Admin() {
           const combinedItems = [...allItems, ...allSampleItems]
           
           return (
-            <section className="mb-10">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-900">
+            <section className="mb-6 sm:mb-10">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
                   {language === 'en' ? 'All Items' : 'Ibintu Byose'}
                 </h2>
-                <span className="text-sm text-gray-500">
+                <span className="text-xs sm:text-sm text-gray-500">
                   {combinedItems.length} {language === 'en' ? 'items' : 'ibintu'}
                 </span>
               </div>
               {loadingItems ? (
-                <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
+                <div className="border border-gray-200 rounded-lg p-4 sm:p-6 text-center text-gray-500">
                   {language === 'en' ? 'Loading items...' : 'Gusoma ibintu...'}
                 </div>
               ) : combinedItems.length === 0 ? (
-                <div className="border border-gray-200 rounded-lg p-6 text-center text-gray-500">
+                <div className="border border-gray-200 rounded-lg p-4 sm:p-6 text-center text-gray-500">
                   {language === 'en' ? 'No items found.' : 'Nta bintu babonetse.'}
                 </div>
               ) : (
-                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                  <table className="w-full">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {language === 'en' ? 'Item' : 'Ikintu'}
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {language === 'en' ? 'Type' : 'Ubwoko'}
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {language === 'en' ? 'Category' : 'Icyiciro'}
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {language === 'en' ? 'Location' : 'Ahantu'}
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {language === 'en' ? 'Status' : 'Imiterere'}
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {language === 'en' ? 'Date' : 'Itariki'}
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {language === 'en' ? 'Actions' : 'Ibyakozwe'}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {combinedItems.map((item) => (
-                        <tr key={item.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center">
-                              {item.photo && (
-                                <img 
-                                  src={item.photo} 
-                                  alt={item.item_name || item.itemName} 
-                                  className="h-10 w-10 rounded object-cover mr-3"
-                                />
-                              )}
-                              <div>
-                                <div className="text-sm font-medium text-gray-900">
-                                  {item.item_name || item.itemName || 'N/A'}
+                <>
+                  {/* Desktop Table View */}
+                  <div className="hidden lg:block bg-white border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {language === 'en' ? 'Item' : 'Ikintu'}
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {language === 'en' ? 'Type' : 'Ubwoko'}
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {language === 'en' ? 'Category' : 'Icyiciro'}
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {language === 'en' ? 'Location' : 'Ahantu'}
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {language === 'en' ? 'Status' : 'Imiterere'}
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {language === 'en' ? 'Date' : 'Itariki'}
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {language === 'en' ? 'Actions' : 'Ibyakozwe'}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {combinedItems.map((item) => (
+                            <tr key={item.id} className="hover:bg-gray-50">
+                              <td className="px-6 py-4">
+                                <div className="flex items-center">
+                                  {item.photo && (
+                                    <img 
+                                      src={item.photo} 
+                                      alt={item.item_name || item.itemName} 
+                                      className="h-10 w-10 rounded object-cover mr-3"
+                                    />
+                                  )}
+                                  <div>
+                                    <div className="text-sm font-medium text-gray-900">
+                                      {item.item_name || item.itemName || 'N/A'}
+                                    </div>
+                                    <div className="text-xs text-gray-500 line-clamp-1">
+                                      {item.description || ''}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="text-xs text-gray-500 line-clamp-1">
-                                  {item.description || ''}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                  item.type === 'lost' 
+                                    ? 'bg-red-100 text-red-800' 
+                                    : 'bg-blue-100 text-blue-800'
+                                }`}>
+                                  {item.type === 'lost' 
+                                    ? (language === 'en' ? 'Lost' : 'Byabuze')
+                                    : (language === 'en' ? 'Found' : 'Byabonetse')
+                                  }
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500">{item.category || 'N/A'}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500">{item.location || 'N/A'}</div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                  item.status === 'returned' || item.status === 'verified'
+                                    ? 'bg-green-100 text-green-800'
+                                    : item.status === 'active'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {item.status === 'returned' || item.status === 'verified'
+                                    ? (language === 'en' ? 'Returned' : 'Byagarutse')
+                                    : item.status === 'active'
+                                    ? (language === 'en' ? 'Active' : 'Bikora')
+                                    : (item.status || 'N/A')
+                                  }
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-500">
+                                  {item.event_date || item.date 
+                                    ? new Date(item.event_date || item.date).toLocaleDateString()
+                                    : item.created_at
+                                    ? new Date(item.created_at).toLocaleDateString()
+                                    : 'N/A'
+                                  }
                                 </div>
-                              </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <button 
+                                  onClick={() => handleDeleteItem(item.id)}
+                                  className="text-red-600 hover:text-red-900 font-medium"
+                                >
+                                  {language === 'en' ? 'Delete' : 'Siba'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Mobile/Tablet Card View */}
+                  <div className="lg:hidden space-y-3">
+                    {combinedItems.map((item) => (
+                      <div key={item.id} className="bg-white border border-gray-200 rounded-xl p-4">
+                        <div className="flex items-start gap-3 mb-3">
+                          {item.photo && (
+                            <img 
+                              src={item.photo} 
+                              alt={item.item_name || item.itemName} 
+                              className="h-16 w-16 rounded object-cover flex-shrink-0"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-sm font-semibold text-gray-900 mb-1">
+                              {item.item_name || item.itemName || 'N/A'}
+                            </h3>
+                            <p className="text-xs text-gray-500 line-clamp-2 mb-2">
+                              {item.description || ''}
+                            </p>
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              <span className={`px-2 py-1 inline-flex text-xs leading-4 font-semibold rounded-full ${
+                                item.type === 'lost' 
+                                  ? 'bg-red-100 text-red-800' 
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {item.type === 'lost' 
+                                  ? (language === 'en' ? 'Lost' : 'Byabuze')
+                                  : (language === 'en' ? 'Found' : 'Byabonetse')
+                                }
+                              </span>
+                              <span className={`px-2 py-1 inline-flex text-xs leading-4 font-semibold rounded-full ${
+                                item.status === 'returned' || item.status === 'verified'
+                                  ? 'bg-green-100 text-green-800'
+                                  : item.status === 'active'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {item.status === 'returned' || item.status === 'verified'
+                                  ? (language === 'en' ? 'Returned' : 'Byagarutse')
+                                  : item.status === 'active'
+                                  ? (language === 'en' ? 'Active' : 'Bikora')
+                                  : (item.status || 'N/A')
+                                }
+                              </span>
                             </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              item.type === 'lost' 
-                                ? 'bg-red-100 text-red-800' 
-                                : 'bg-blue-100 text-blue-800'
-                            }`}>
-                              {item.type === 'lost' 
-                                ? (language === 'en' ? 'Lost' : 'Byabuze')
-                                : (language === 'en' ? 'Found' : 'Byabonetse')
-                              }
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{item.category || 'N/A'}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">{item.location || 'N/A'}</div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              item.status === 'returned' || item.status === 'verified'
-                                ? 'bg-green-100 text-green-800'
-                                : item.status === 'active'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-gray-100 text-gray-800'
-                            }`}>
-                              {item.status === 'returned' || item.status === 'verified'
-                                ? (language === 'en' ? 'Returned' : 'Byagarutse')
-                                : item.status === 'active'
-                                ? (language === 'en' ? 'Active' : 'Bikora')
-                                : (item.status || 'N/A')
-                              }
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-500">
-                              {item.event_date || item.date 
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mb-3">
+                          <div>
+                            <span className="font-medium">{language === 'en' ? 'Category:' : 'Icyiciro:'}</span> {item.category || 'N/A'}
+                          </div>
+                          <div>
+                            <span className="font-medium">{language === 'en' ? 'Location:' : 'Ahantu:'}</span> {item.location || 'N/A'}
+                          </div>
+                          <div className="col-span-2">
+                            <span className="font-medium">{language === 'en' ? 'Date:' : 'Itariki:'}</span> {
+                              item.event_date || item.date 
                                 ? new Date(item.event_date || item.date).toLocaleDateString()
                                 : item.created_at
                                 ? new Date(item.created_at).toLocaleDateString()
                                 : 'N/A'
-                              }
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <button 
-                              onClick={() => handleDeleteItem(item.id)}
-                              className="text-red-600 hover:text-red-900 font-medium"
-                            >
-                              {language === 'en' ? 'Delete' : 'Siba'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                            }
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => handleDeleteItem(item.id)}
+                          className="w-full text-sm text-red-600 hover:text-red-900 font-medium py-2 border border-red-200 rounded-lg hover:bg-red-50"
+                        >
+                          {language === 'en' ? 'Delete' : 'Siba'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
               )}
             </section>
           )
