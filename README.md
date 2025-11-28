@@ -372,6 +372,6 @@ This is a formative assignment project. For questions or issues, please contact 
 
  Live Demo
 
-The application is deployed and publicly accessible at: https://finderfees-hx4m.vercel.app/
+The application is deployed and publicly accessible at: https://finderfees-hx4m.vercel.app/](https://finderfees-iguw.vercel.app/
 
 
