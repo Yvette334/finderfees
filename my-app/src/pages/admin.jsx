@@ -5,7 +5,8 @@ import Footer from '../components/footer'
 import { authAPI, userAPI } from '../utils/api'
 import { authSupabase, claimsSupabase, itemsSupabase, notificationsSupabase } from '../utils/supabaseAPI'
 import supabase from '../utils/supabaseClient'
-import { sampleItems } from './search'
+import { sampleItems } from './Search'
+
 
 function Admin() {
   const [pendingClaims, setPendingClaims] = useState([])
@@ -15,7 +16,6 @@ function Admin() {
   const [allItems, setAllItems] = useState([])
   const [allPayments, setAllPayments] = useState([])
   const [loadingUsers, setLoadingUsers] = useState(false)
-  const [rpcAvailable, setRpcAvailable] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
   const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
 
@@ -221,14 +221,12 @@ function Admin() {
       // Update claim in Supabase
       const approvedClaim = await claimsSupabase.approveClaim(claimId, reviewerId)
       
-      // Update item status - mark as claimed, verified and returned, and store claimant phone
+      // Update item status - mark as verified and returned
       if (claim.item_id) {
         try {
           await itemsSupabase.updateItem(claim.item_id, { 
-            status: 'claimed', // Mark as claimed when approved
-            verified: true,
-            // Also store claimant phone number so it can be displayed
-            owner_phone: claim.claimant_phone || claim.phone || null
+            status: 'returned',
+            verified: true
           })
         } catch (itemErr) {
           console.warn('Failed to update item status', itemErr)
@@ -542,21 +540,6 @@ function Admin() {
               </div>
             ) : (
               <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                {!rpcAvailable && (
-                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-t-lg text-yellow-800">
-                    {language === 'en' ? (
-                      <>
-                        The Supabase RPC function <code>get_all_users</code> is not available. The app may only show users who have profile records.
-                        <div className="mt-2 text-sm">To list all auth users, add an RPC that returns rows from <code>auth.users</code> or use a server-side admin endpoint.</div>
-                      </>
-                    ) : (
-                      <>
-                        Icyiswe Supabase RPC <code>get_all_users</code> ntabwo iboneka. Porogaramu ishobora gusa kugaragaza abakoresha bafite profiles.
-                        <div className="mt-2 text-sm">Kwerekana abakoresha bose, ongera RPC isubiza imirongo iva muri <code>auth.users</code> cyangwa ukoreshe imwe mu nzira z'inyuma.</div>
-                      </>
-                    )}
-                  </div>
-                )}
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
